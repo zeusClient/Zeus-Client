@@ -16,3 +16,7 @@ recover/
 __pycache__/
 *.pyc
 tools/knives_hd/level2/
+
+.gradle/
+build/
+build.log
