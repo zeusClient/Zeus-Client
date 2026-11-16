@@ -1,3 +1,13 @@
+# New look for Zeus Crates
+The crates screen is redesigned and much lighter to run.
+
+- Sharp new text and layout that look the same at every GUI scale
+- A spotlight stage for the crate, with Buy key and Quick open beside Open
+- The Chroma knife of each crate gets a big featured tile
+- New Chroma textures for the karambit, M9, crystal and phoenix
+- Opening a crate draws far less, so the reel and reveal stay smooth
+- Number keys 1 to 5 switch tabs, Esc closes a knife you are inspecting
+
 # New: Chroma knives
 Six secret knives, one in every crate. About 1 in 400 opens.
 

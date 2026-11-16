@@ -26,6 +26,13 @@ public class ZeusScreensTest implements FabricClientGameTest {
     @Override
     public void runTest(ClientGameTestContext ctx) {
         ctx.getInput().resizeWindow(1920, 1080);
+        if (System.getenv("ZEUS_BENCH") != null) {
+            CratesBench.run(ctx);
+            ctx.runOnClient(c -> UiSettings.MENU.set(false));
+            ctx.setScreen(TitleScreen::new);
+            ctx.waitTicks(5);
+            return;
+        }
         if (System.getenv("ZEUS_FILM") != null) {
             film(ctx, System.getenv("ZEUS_FILM"));
             ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual = -1L);
@@ -37,34 +44,7 @@ public class ZeusScreensTest implements FabricClientGameTest {
         // the intro video plays first; wait for the Zeus menu itself, then let its buttons slide in
         ctx.waitFor(c -> c.screen instanceof ZeusTitleScreen, 20 * 60);
         ctx.runOnClient(c -> grant());
-        run(ctx, 3.0f);
-        ctx.takeScreenshot("title_1080");
-        // unroll the news scroll and photograph it
-        ctx.runOnClient(c -> {
-            try {
-                Field nf = c.screen.getClass().getDeclaredField("news");
-                nf.setAccessible(true);
-                Object news = nf.get(c.screen);
-                set(news, "rolled", false);
-            } catch (ReflectiveOperationException e) {
-                throw new RuntimeException(e);
-            }
-        });
-        run(ctx, 2.0f);
-        ctx.takeScreenshot("title_news_1080");
-        ctx.getInput().resizeWindow(854, 480);
-        run(ctx, 0.6f);
-        ctx.takeScreenshot("title_854");
-        ctx.getInput().resizeWindow(1920, 1080);
-        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.ZeusAboutScreen(new ZeusTitleScreen()));
-        run(ctx, 0.8f);
-        ctx.takeScreenshot("about_1080");
-        ctx.setScreen(() -> com.zlorbie788.zeus.ui.KeybindScreen.forMenuKey(null));
-        run(ctx, 0.5f);
-        ctx.takeScreenshot("keys_menu_listen");
-        ctx.setScreen(ZeusTitleScreen::new);
-        run(ctx, 1.0f);
-
+        if (System.getenv("ZEUS_CRATES_ONLY") == null) titleShots(ctx);
         ctx.runOnClient(c -> grant());
 
         int[][] sizes = {{1920, 1080, 0}, {1920, 1080, 2}, {854, 480, 0}};
@@ -159,6 +139,13 @@ public class ZeusScreensTest implements FabricClientGameTest {
             ctx.takeScreenshot("inspect_" + tag);
             ctx.setScreen(() -> null);
             ctx.waitTicks(4);
+        }
+        // ZEUS_CRATES_ONLY=1: stop after the Crates screens, for quick UI checks
+        if (System.getenv("ZEUS_CRATES_ONLY") != null) {
+            ctx.runOnClient(c -> UiSettings.MENU.set(false));
+            ctx.setScreen(TitleScreen::new);
+            ctx.waitTicks(5);
+            return;
         }
 
         ctx.getInput().resizeWindow(1920, 1080);
@@ -520,7 +507,7 @@ public class ZeusScreensTest implements FabricClientGameTest {
     }
 
     /** Keeps the game ticking and drawing for this many real seconds. */
-    private static void run(ClientGameTestContext ctx, float seconds) {
+    static void run(ClientGameTestContext ctx, float seconds) {
         long end = System.nanoTime() + (long) (seconds * 1e9);
         while (System.nanoTime() < end) {
             ctx.waitTick();
@@ -606,7 +593,37 @@ public class ZeusScreensTest implements FabricClientGameTest {
         ctx.waitTicks(5);
     }
 
-    private static void grant() {
+    private static void titleShots(ClientGameTestContext ctx) {
+        run(ctx, 3.0f);
+        ctx.takeScreenshot("title_1080");
+        // unroll the news scroll and photograph it
+        ctx.runOnClient(c -> {
+            try {
+                Field nf = c.screen.getClass().getDeclaredField("news");
+                nf.setAccessible(true);
+                Object news = nf.get(c.screen);
+                set(news, "rolled", false);
+            } catch (ReflectiveOperationException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        run(ctx, 2.0f);
+        ctx.takeScreenshot("title_news_1080");
+        ctx.getInput().resizeWindow(854, 480);
+        run(ctx, 0.6f);
+        ctx.takeScreenshot("title_854");
+        ctx.getInput().resizeWindow(1920, 1080);
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.ZeusAboutScreen(new ZeusTitleScreen()));
+        run(ctx, 0.8f);
+        ctx.takeScreenshot("about_1080");
+        ctx.setScreen(() -> com.zlorbie788.zeus.ui.KeybindScreen.forMenuKey(null));
+        run(ctx, 0.5f);
+        ctx.takeScreenshot("keys_menu_listen");
+        ctx.setScreen(ZeusTitleScreen::new);
+        run(ctx, 1.0f);
+    }
+
+    static void grant() {
         try {
             Crates.load();
             set(null, Crates.class, "tokens", 42);
@@ -637,7 +654,7 @@ public class ZeusScreensTest implements FabricClientGameTest {
         }
     }
 
-    private static void open(Minecraft c, String crate) {
+    static void open(Minecraft c, String crate) {
         try {
             Method m = CratesScreen.class.getDeclaredMethod("startOpening", Crates.Crate.class);
             m.setAccessible(true);
@@ -647,11 +664,11 @@ public class ZeusScreensTest implements FabricClientGameTest {
         }
     }
 
-    private static void set(Object target, String field, Object value) {
+    static void set(Object target, String field, Object value) {
         set(target, target.getClass(), field, value);
     }
 
-    private static void set(Object target, Class<?> cls, String field, Object value) {
+    static void set(Object target, Class<?> cls, String field, Object value) {
         try {
             Field f = cls.getDeclaredField(field);
             f.setAccessible(true);
