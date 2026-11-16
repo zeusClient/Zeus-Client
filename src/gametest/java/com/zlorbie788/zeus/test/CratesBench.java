@@ -31,6 +31,10 @@ final class CratesBench {
 
     static void run(ClientGameTestContext ctx) {
         ctx.waitFor(c -> c.screen != null, 20 * 60);
+        if (System.getenv("ZEUS_BENCH_HITCH") != null) {
+            hitches(ctx);
+            return;
+        }
         ctx.getInput().resizeWindow(1920, 1080);
         ctx.runOnClient(c -> {
             c.options.guiScale().set(0);
@@ -80,6 +84,51 @@ final class CratesBench {
         });
         ZeusScreensTest.run(ctx, 0.9f);
         ctx.runOnClient(c -> out.append(measure(c, "inspect", -1, -1)));
+        System.out.println(out);
+        ctx.setScreen(() -> null);
+        ctx.waitTicks(4);
+    }
+
+    /**
+     * Opens a crate on a freshly opened screen and times every real game frame (each tick of the test draws one)
+     * from the click to the reveal: a picture read on the render thread shows up as one long frame.
+     */
+    private static void hitches(ClientGameTestContext ctx) {
+        ctx.getInput().resizeWindow(1920, 1080);
+        ctx.runOnClient(c -> {
+            c.options.guiScale().set(0);
+            c.resizeDisplay();
+        });
+        ctx.runOnClient(c -> ZeusScreensTest.grant());
+        ctx.runOnClient(c -> Crates.setQuick(false));
+        ctx.setScreen(() -> new CratesScreen(null));
+        ZeusScreensTest.run(ctx, 1.5f);
+        String[] crates = {"hades", "nyx", "tempest"};
+        StringBuilder out = new StringBuilder("\n");
+        for (String crate : crates) {
+            ctx.runOnClient(c -> ZeusScreensTest.open(c, crate));
+            java.util.List<Long> ms = new java.util.ArrayList<>();
+            long start = System.nanoTime(), worstAt = 0, worst = 0;
+            while (System.nanoTime() - start < 8_500_000_000L) {
+                long t0 = System.nanoTime();
+                ctx.waitTick();
+                long d = (System.nanoTime() - t0) / 1_000_000L;
+                ms.add(d);
+                if (d > worst) {
+                    worst = d;
+                    worstAt = (t0 - start) / 1_000_000L;
+                }
+            }
+            java.util.List<Long> sorted = new java.util.ArrayList<>(ms);
+            java.util.Collections.sort(sorted);
+            long p50 = sorted.get(sorted.size() / 2), p95 = sorted.get((int) (sorted.size() * 0.95));
+            int over = 0;
+            for (long d : ms) if (d > 3 * p50 + 20) over++;
+            out.append(String.format(Locale.ROOT, "ZEUS-HITCH %-8s frames %4d  median %4d ms  p95 %4d ms  worst %4d ms at %5d ms  long frames %d%n",
+                    crate, ms.size(), p50, p95, worst, worstAt, over));
+            ctx.runOnClient(c -> ZeusScreensTest.set(c.screen, "opening", null));
+            ctx.waitTicks(10);
+        }
         System.out.println(out);
         ctx.setScreen(() -> null);
         ctx.waitTicks(4);

@@ -298,6 +298,24 @@ public final class CratesScreen extends Screen {
         // the box only takes the typing; its text, hint and caret are drawn by redeemTab in the panel's font
         addWidget(codeBox);
         hideCodeBox();
+        preload();
+    }
+
+    /**
+     * Starts reading every crate case and every knife sheet the screen shows in the background, the chosen
+     * crate's first, so no frame waits on a picture being read (opening a crate used to stutter on them).
+     */
+    private void preload() {
+        for (Crate c : Crates.CRATES) {
+            for (String part : new String[] {"body", "lid"}) {
+                for (int w : new int[] {512, 256, 128}) Tex.prefetch("textures/crates/" + c.id + "_" + part + "_" + w + ".png");
+            }
+        }
+        List<Crate> order = new ArrayList<>(Crates.CRATES);
+        order.remove(Crates.CRATES.get(sel));
+        order.add(0, Crates.CRATES.get(sel));
+        for (Crate c : order) for (Item it : c.items) KnifeHDGui.prefetch(Crates.hdOf(it.id()), false);
+        KnifeHDGui.prefetch(Crates.hdOf(Crates.STARTER), false);
     }
 
     /** The promo code field sits inside the drawn field box (units); the vanilla box takes the typing. */
@@ -499,10 +517,20 @@ public final class CratesScreen extends Screen {
 
     /** The case art at the sharpest size the crate needs on screen (the textures have no mipmaps). */
     private static Tex.Img caseImg(Crate c, String part, int size) {
-        float px = size * (float) Math.max(1, minecraftScale());
-        int w = px > 300 ? 512 : px > 150 ? 256 : 128;
-        Tex.Img img = Tex.sprite("textures/crates/" + c.id + "_" + part + "_" + w + ".png");
-        return img != null ? img : Tex.sprite("textures/crates/" + c.id + "_" + part + "_256.png");
+        float pxs = size * (float) Math.max(1, minecraftScale());
+        int w = pxs > 300 ? 512 : pxs > 150 ? 256 : 128;
+        String base = "textures/crates/" + c.id + "_" + part + "_";
+        Tex.Img img = Tex.spriteIfReady(base + w + ".png");
+        if (img != null) return img;
+        // still loading in the background: another size that is ready will do for a frame
+        if (Tex.pending(base + w + ".png")) {
+            for (int o : new int[] {512, 256, 128}) {
+                Tex.Img other = Tex.spriteIfReady(base + o + ".png");
+                if (other != null) return other;
+            }
+        }
+        img = Tex.sprite(base + w + ".png");
+        return img != null ? img : Tex.sprite(base + "256.png");
     }
 
     private static double minecraftScale() {
@@ -622,6 +650,8 @@ public final class CratesScreen extends Screen {
         float x, y, w, h;
         boolean owned, locked, big;
         float live;
+        /** How much larger than its box size the card is drawn; the knife is scaled, not rebuilt, so it stays cached. */
+        float sc = 1f;
         /** A dark veil over the card (0 none), for cards fading in or dimmed in the reel. */
         float veil;
         int veilColour;
@@ -637,6 +667,7 @@ public final class CratesScreen extends Screen {
             this.live = live;
             this.big = big;
             this.veil = 0f;
+            this.sc = 1f;
             return this;
         }
 
@@ -690,7 +721,19 @@ public final class CratesScreen extends Screen {
         }
         for (int i = 0; i < n; i++) {
             Card c = cards.get(i);
-            knife(g, kindOf(c.it.id()), c.x + 3, c.y + c.top(), c.w - 6, c.kh(), c.live > 0.5f, t);
+            if (c.sc == 1f) {
+                knife(g, kindOf(c.it.id()), c.x + 3, c.y + c.top(), c.w - 6, c.kh(), c.live > 0.5f, t);
+                continue;
+            }
+            // drawn at the unscaled size and scaled round the card's centre
+            float bw = c.w / c.sc, bh = c.h / c.sc, cx = c.x + c.w / 2f, cy = c.y + c.h / 2f;
+            float kh = bh - (bh >= 46 ? 15 : 3) - c.top() - 2;
+            g.pose().pushMatrix();
+            g.pose().translate(cx * s, cy * s);
+            g.pose().scale(c.sc, c.sc);
+            g.pose().translate(-cx * s, -cy * s);
+            knife(g, kindOf(c.it.id()), cx - bw / 2f + 3, cy - bh / 2f + c.top(), bw - 6, kh, c.live > 0.5f, t);
+            g.pose().popMatrix();
         }
         for (int i = 0; i < n; i++) {
             Card c = cards.get(i);
@@ -792,6 +835,8 @@ public final class CratesScreen extends Screen {
                 g.pose().popMatrix();
             }
         }
+        // a knife under the mouse may be clicked open next: read its large sheet ahead
+        if (tipItem != null) KnifeHDGui.prefetch(Crates.hdOf(tipItem.id()), true);
         g.pose().pushMatrix();
         g.pose().scale(1f / gs, 1f / gs);
         floaters(g, t);
@@ -1777,6 +1822,8 @@ public final class CratesScreen extends Screen {
         if (!Crates.canOpen(c)) return;
         Crates.Result res = Crates.open(c);
         if (res == null) return;
+        // the reveal shows the winner big: start reading its large sheet now, seconds before it is needed
+        KnifeHDGui.prefetch(Crates.hdOf(res.item().id()), true);
         opening = new Opening(c, res, Math.round(lastCrateCx), Math.round(lastCrateCy), Math.round(lastCrateSize));
         hideCodeBox();
         snd(SoundEvents.CHEST_LOCKED, 1.3f, 0.7f);
@@ -1989,11 +2036,20 @@ public final class CratesScreen extends Screen {
             }
         }
 
+        /**
+         * A shockwave ring, as a circle of short strokes. (It used to be a rounded outline, and every new radius of a
+         * growing ring baked a new corner texture thousands of pixels wide: that froze the frame the crate burst open
+         * and the frame the knife was revealed.)
+         */
         void ring(GuiGraphics g, float cx, float cy, float r, int colour) {
             r = Math.max(2, r);
-            stroke(g, cx - r, cy - r, 2 * r, 2 * r, r, colour);
-            float r2 = r + 1f;
-            stroke(g, cx - r2, cy - r2, 2 * r2, 2 * r2, r2, colour);
+            int seg = Math.max(24, Math.min(120, Math.round(r * s / 7f)));
+            float step = (float) (Math.PI * 2 / seg);
+            for (int i = 0; i < seg; i++) {
+                float a0 = i * step, a1 = (i + 1) * step + 0.004f;
+                line(g, cx + (float) Math.cos(a0) * r, cy + (float) Math.sin(a0) * r, cx + (float) Math.cos(a1) * r, cy + (float) Math.sin(a1) * r,
+                        1.6f, colour);
+            }
         }
 
         void reelView(GuiGraphics g, float t, float clock) {
@@ -2035,6 +2091,7 @@ public final class CratesScreen extends Screen {
                 float dimK = landed ? 1f - 0.7f * outCubic(hold * 2f) : 1f;
                 float ccy = cy + ch / 2f + (landed ? outCubic(hold * 1.5f) * 8f : 0f);
                 Card cd = cardAdd().set(reel.get(i), fx - cw * sc / 2f, ccy - ch * sc / 2f, cw * sc, ch * sc, false, false, 0f, false);
+                cd.sc = sc;
                 cd.veil = 1f - Math.min(1f, a * dimK);
                 cd.veilColour = 0xFF04060C;
             }
