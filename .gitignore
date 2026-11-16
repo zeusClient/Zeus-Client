@@ -1,0 +1,22 @@
+# Hidden folder and build folders
+.gradle/
+build/
+out_src/
+asset_backup/
+recover/
+
+# Temporary files for minecraft
+*.class
+*.bak
+*.bin
+*.recovered
+*.restored
+
+# Python caches from the knife generator
+__pycache__/
+*.pyc
+tools/knives_hd/level2/
+
+.gradle/
+build/
+build.log
