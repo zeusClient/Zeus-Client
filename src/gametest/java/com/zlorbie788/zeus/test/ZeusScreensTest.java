@@ -104,6 +104,32 @@ public class ZeusScreensTest implements FabricClientGameTest {
                 ctx.takeScreenshot("open_" + tag + "_" + Math.round(a * 100));
             }
             ctx.runOnClient(c -> set(c.screen, "opening", null));
+            // three crates at once: the stacked reels, then the knives side by side
+            ctx.runOnClient(c -> {
+                Crates.setMulti(3);
+                open(c, "tempest");
+            });
+            run(ctx, 2.6f);
+            ctx.takeScreenshot("multi_reel_" + tag);
+            ctx.runOnClient(c -> {
+                try {
+                    Object op = CratesScreen.class.getDeclaredField("opening");
+                    java.lang.reflect.Field f = (java.lang.reflect.Field) op;
+                    f.setAccessible(true);
+                    Object o = f.get(c.screen);
+                    Method sk = o.getClass().getDeclaredMethod("skip");
+                    sk.setAccessible(true);
+                    sk.invoke(o);
+                } catch (ReflectiveOperationException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            run(ctx, 1.8f);
+            ctx.takeScreenshot("multi_reveal_" + tag);
+            ctx.runOnClient(c -> {
+                set(c.screen, "opening", null);
+                Crates.setMulti(1);
+            });
             // a Chroma drop, straight to its reveal
             ctx.runOnClient(c -> {
                 try {
@@ -112,7 +138,7 @@ public class ZeusScreensTest implements FabricClientGameTest {
                     Class<?> oc = Class.forName("com.zlorbie788.zeus.ui.CratesScreen$Opening");
                     var ctor = oc.getDeclaredConstructors()[0];
                     ctor.setAccessible(true);
-                    Object op = ctor.newInstance(c.screen, cr, res, c.getWindow().getGuiScaledWidth() / 2, c.getWindow().getGuiScaledHeight() / 2, 80);
+                    Object op = ctor.newInstance(c.screen, cr, java.util.List.of(res), c.getWindow().getGuiScaledWidth() / 2, c.getWindow().getGuiScaledHeight() / 2, 80);
                     set(c.screen, "opening", op);
                     Method sk = oc.getDeclaredMethod("skip");
                     sk.setAccessible(true);
@@ -627,7 +653,7 @@ public class ZeusScreensTest implements FabricClientGameTest {
         try {
             Crates.load();
             set(null, Crates.class, "tokens", 42);
-            set(null, Crates.class, "keys", 30);
+            set(null, Crates.class, "keys", 90);
             Field h = Crates.class.getDeclaredField("held");
             h.setAccessible(true);
             Map<String, Integer> held = (Map<String, Integer>) h.get(null);

@@ -317,10 +317,7 @@ public final class Tex {
     private static NativeImage half(NativeImage src, int cells) {
         int sw = src.getWidth(), sh = src.getHeight();
         int w = Math.max(1, sw / 2), h = Math.max(1, sh / 2);
-        int[] in = new int[sw * sh];
-        for (int y = 0; y < sh; y++) {
-            for (int x = 0; x < sw; x++) in[y * sw + x] = src.getPixel(x, y);
-        }
+        int[] in = src.getPixels();
         boolean[] light = new boolean[Math.max(1, cells)];
         int sch = cells > 0 ? sh / cells : sh;
         if (cells > 0) {

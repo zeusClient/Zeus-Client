@@ -25,8 +25,10 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Zeus Crates: the knives you own, the crates and keys you hold, Zeus tokens earned by playing,
- * and promo codes. Everything is kept in config/zeus/crates.dat, signed so a hand-edited file is
+ * Zeus Crates: the knives you own, the keys you hold, Zeus tokens earned by playing, and promo codes.
+ * Keys cost {@link #KEY_PRICE} tokens and any crate opens with {@link #KEYS_PER_OPEN} keys: there are no
+ * crates to collect first (crates held from before are turned into keys when the save is read).
+ * Everything is kept in config/zeus/crates.dat, signed so a hand-edited file is
  * noticed and reset rather than trusted.
  */
 public final class Crates {
@@ -101,7 +103,7 @@ public final class Crates {
     }
 
     public static final String STARTER = "karambit_stock";
-    public static final int KEY_PRICE = 10;
+    public static final int KEY_PRICE = 3;
     /** Keys one crate takes to open. */
     public static final int KEYS_PER_OPEN = 3;
     public static final long TOKEN_MS = 5 * 60_000L;
@@ -300,9 +302,135 @@ public final class Crates {
             {"6dea54b17c2ad5be3ea52bad89f0d7accb1311c257393758c443f5d347fa684e", "all:1"},
             {"067d5ff5449328b3aa1828c58d970b9ada777f89bcb6272e4a51f4b510836203", "random:1"},
             {"0be4d3a13396c9656696819dcd4ed24e0ef43113aae508b6ca0debe6c733e495", "random:2"},
-            // admin: 6 of every crate plus the keys to open them all, works any number of times ("*" = reusable)
-            {"3aa6ba0b339531d4dd7de2311eda45c3631d697b062999f7bec01af6c27b4e18", "admin:6:*"}
+            // admin: keys to open every crate n times plus tokens, works any number of times ("*" = reusable)
+            {"3aa6ba0b339531d4dd7de2311eda45c3631d697b062999f7bec01af6c27b4e18", "admin:6:*"},
+            // second batch: keys and tokens ("keys:n", "tokens:n"), and new admin codes
+            {"cf5ab8e15aefece1ae9dc9736e643bc392b9962cf84a422448a99f1ba47e2fa0", "keys:9"},
+            {"898f7b26edba8742ad798d152a36217f63d945df01313ce57df60dfba1c22131", "keys:9"},
+            {"63051a7c89e4974360b8212cf743a8c74cb6a113d9a1bf22b5c491e5866d3943", "keys:9"},
+            {"521f82e92c8b595e31346458e21046e310cc96c9ee95e0ae9e8b4684fbf6b651", "keys:9"},
+            {"1a293bd0dd23b93df1e1e200f78256151a15462f5e3bd58a7ab31b058647d5f1", "keys:9"},
+            {"6a89a60c9f125baff9c2a41f9472f4d3e2a08be58a794994565b20e51ce78b35", "keys:9"},
+            {"c71fa5a741e48dd9f4e3fede160a980e1260a14cce0038490525d638cae7290a", "keys:9"},
+            {"52fc31bca08583c48b564bda425522c93451710d3bd0ce8efc16d0ad29c0ad7a", "keys:9"},
+            {"e82b6b99e4d3fa889ade3c8242570dc2ffa36657c4bdded543f6d931ab03067a", "keys:9"},
+            {"96253437bfd8827b63b71f01d8e946866df2d3d0aad85f1b6f0d47e89a228ea9", "keys:9"},
+            {"69bacdf48d8a3f9b91955ba5b6f7b773984d2b89853d231175552bd895f5de20", "keys:9"},
+            {"9e566b2124cefe1b30e0dc1d274622196522474807b0f1353f32fda24221f87c", "keys:9"},
+            {"6a35662f3eef1cb5f6567eadf360e524b0a84cba0741121d58c950cd2f3cb4d8", "keys:9"},
+            {"eace972b878b60407bb2e669f617c28b07d9568e8313f49a77ba1e98ec6dc90b", "keys:9"},
+            {"64b07a2c011577da2edaa75b2ee7415fde16491eda53d14ffe44cf860bcb32c4", "keys:9"},
+            {"0662c77d02b1e338f119a6987d22480218450fede2edfe7d2acc6cbf45697506", "keys:9"},
+            {"6a9a7cc9dd2c6c1afd08b4ff658e404f2bedfec0cd936e9ddbb0c41df1169f4d", "keys:9"},
+            {"d9709693553ea043ae3f1e47f32fe6bfc7b79b5903a216bba72ab85ad7929e51", "keys:9"},
+            {"19718821f720656d52c378ca62f9885b4fea803aa80dfb811a2db6fa71b8706d", "keys:9"},
+            {"6a10f0e61a87b8ed718ebe46271382c71ff11b027f0d8800bdd3e4ab7a6722d0", "keys:9"},
+            {"8f386dc262f8f9f9312547a7d50d912cb10a85e8833f0c934ff4b892eede01d8", "keys:9"},
+            {"27e3d89a42ed64b110e895ca3fe90e78c54df89d69180ab4353118b69ab62a02", "keys:9"},
+            {"6e9b58759dd754cd4625cc820b33b28535012808a93474bd3920ee796561e6c2", "keys:9"},
+            {"9e5e00d80da6f375f6e7ed0bad9f689394692dda8fe9a0d6ee13d528d3a9df98", "keys:9"},
+            {"1f783118d4b40fab9d1ba179990995b4785ab90544aa9596b616b924c70f6875", "keys:9"},
+            {"b16370f65bb0bae3d202fe96e9387d759df649fffb782849dea6bd4aac844dea", "keys:9"},
+            {"4942cf23e83dfc7909921c49ee3d60931aae3c53c6fb4c8fcb1e69ff93aef6fd", "keys:9"},
+            {"857de2cc58ef8c0672050598c21861d587199a5e043406eea10c68f6c71dd59b", "keys:9"},
+            {"8df6cf234943c37b5114bb5f389c57c921edd3c9c1a9e605d71f37b11fc93d70", "keys:9"},
+            {"860b6ef2e9e3c9cdcca802ad02535363e629a93e4a0aa8406b1da036f316291b", "keys:9"},
+            {"3619b271c75c7b0d5b92c2753b93b254b0640d0a60bc67575cf199e1a416d6c1", "keys:9"},
+            {"356d13e6bb292604f709a3f25d76ae5ba855acde5eea6f805bb974f13c996160", "keys:9"},
+            {"2f76c2be5302b3d210e710bd8cfb7f1fa2f73ecb3ddf3f93b30ce25a2f022dd0", "keys:9"},
+            {"cb68a80d78510248af7728d2c7c853c8c2f6be8a6adea9d5e6a32e153a27ee3e", "keys:9"},
+            {"20d8c22794a7d53be52f41f4b17ff41c9d2ca35ceae60b4a0e8844adb10eb069", "keys:9"},
+            {"b3dd5b264d946b34d19c2b41e283d3ef4d9cf6bfd8398868f9b0a1a2c4852e7d", "keys:9"},
+            {"645e17cd0a0ddc1a356b8deab78fd841c96f50ae4180d5aa0d9806295bddf37f", "keys:9"},
+            {"f6e97f9c0d8272bcd96b9ca5d98eadfbea3a6314b4fa4970a470b4b923208323", "keys:9"},
+            {"547f632af3524892e6fbb2dfe82ee0bbc51facc47592ba63fb2b86fa483760d9", "keys:9"},
+            {"e3de66e7e6877357e50ac147b72852b65d828e32bca2ba6a75ac1920412e0b89", "keys:9"},
+            {"aaf2508dfb61ab819ffe1b914b6e72c04380cc2862c093c36bf1e93c1695e76c", "keys:15"},
+            {"475004753b519ad7419b39ac45926c641da03007801df0a6bdd905df4df20759", "keys:15"},
+            {"0ea6140f4f9e7bb2fb004e5a1d2689a6bbd2992492f608e7150627e00d9fe29b", "keys:15"},
+            {"973e2aec6c50a2d0e6d309a4599245bb3d1240d072c9e6421b01f75dc7d7b43f", "keys:15"},
+            {"35ffc8ca67eca8888147205b1d7168eb1aecba364186e4add26d693de7d7e5be", "keys:15"},
+            {"290625ec8adaaed509efe40b2843ff42e621a6f2483471447fb238e618f336dd", "keys:15"},
+            {"17504e60bdd9bece208d43816a0a4090d25f6f7fa8331c6b340e598cabdab9f8", "keys:15"},
+            {"3e76f9441f003b7fc0c4b4dff4839043016ce2087c70887c3a98b638fd5912c7", "keys:15"},
+            {"b1434f7cb8eb634305d0bbb75b25dae83f23490dab8501d49201ab18bb1310c8", "keys:15"},
+            {"27aa35e197d1eb8721557363a6c335dfbc8d0dacd61c8ff0cbf6d5db4804df49", "keys:15"},
+            {"5580ba7e2e5014478986f1ebfe2c167b114dcc8b2650e21a6b22d92260109814", "keys:15"},
+            {"8d95aea276887151605cd8dc4f8dfb66f7425b1f196ce1313b7ca663a889ce78", "keys:15"},
+            {"8b95037c459f724a0e488c8bab1e71fe73e31354cc22d708f3fd5b2e65244c6b", "keys:15"},
+            {"7153e9e47fcac823c6545281e3e9ca3057169476e4b9d7df5df4824744d255ba", "keys:15"},
+            {"74be38b17d26eece90e8e019bb950175885a3f786a6ff8e003a3ffffc12a1591", "keys:15"},
+            {"a88c504fa3b66bc2a137c7e4d1b9710e8b40dc105a3d07a8a7e7e3545f38e3e3", "keys:15"},
+            {"77df19efd670d4bd61114af9e713955015a1d92d81daa406fff5c2502b6c1553", "keys:15"},
+            {"982f185ed88dcb047ddbd48fdc8db73cb51808ecfe050ad382cf9e91f9328c50", "keys:15"},
+            {"98198088bb6196883dd8137d9ae632b847f563f5d98001f2bd4fcc517a493a49", "keys:15"},
+            {"36a1d1008e4a745b0f81e56200afe78640f1ac9bb70cfc6fae8d312d2c74aa65", "keys:15"},
+            {"88b4b6cc3a5b3a5db197de4253c70c19a594dbae9b71669d2245a39d3f457000", "keys:15"},
+            {"069aacd1fc75a9360c8ecb7f776a799601450d6706e6f92c17ab8ee08ea707fe", "keys:15"},
+            {"0647cf317223cf5f72dadbe779637cb7635ad8b1c8fe78173e892976a0c38d12", "keys:15"},
+            {"559edf8382cd07d63a6a7473b4e0d28952aafecfea997f1b656949934aa4c3de", "keys:15"},
+            {"938fc30f86aefabdf89971f386fd4ce202babe00940b291c9674ee3cab92e283", "keys:15"},
+            {"382d586e304598402fc3573041cc31f51df92d09c726468566ab243d1b5ce10e", "tokens:15"},
+            {"c4232e291e8d7078f7d9095eb87d77f094760e830a6906970d1893df1c3a9ecf", "tokens:15"},
+            {"f981156dceec36176c1b14733b57c9ca6c5c479e30f8f8c2d526c8aacd29009f", "tokens:15"},
+            {"f865f3a652af7cdc551d92a115b6d7e10731c9c397c36a896821160415c38b4d", "tokens:15"},
+            {"50e3992df9925dd62ccbac6ff41659740a1b4f5c8387fc7accb82915bfaae4df", "tokens:15"},
+            {"3887a0857c2a436bab1093c903c7cd01cd9173fa9ceed7db9aaed213ded20a5d", "tokens:15"},
+            {"da61fc7f7cdf75c17a30328ee45ae0a7a75e896a3e982ae7c97a8f93b9e05018", "tokens:15"},
+            {"363865a90286250d901725ed72d014d7b1d81363d847f28554f104face0f5b87", "tokens:15"},
+            {"c506e8fe200dfae765f2a1bfbc8f417f3c2b7a5ab782c8b12bca0088a99976e0", "tokens:15"},
+            {"5d2377ce39e98299ba0039b2dd56e1260e3766c6c029e6989b7d5c5677e25a03", "tokens:15"},
+            {"42cf9bbc7d74372fed084ff5519f01e9200b503fa8c93854a81f21507d1907db", "tokens:15"},
+            {"9061ab8dae3e02a4d73f302e7472e16455cba5c2bdbaae2ca603a66ab05a2866", "tokens:15"},
+            {"9fbd5bc2d1c2a5d7fb8bcea8e56a94877e618aa17284cda7312d77db54bfe238", "tokens:15"},
+            {"174d57faddabee3528b1d6c6ff92a62d7eca26592024ef4f27156efbc04c61e0", "tokens:15"},
+            {"577607f2b8b72bc3eafa77d205583fc155764776f28616e86774c499876cbca4", "tokens:15"},
+            {"17e3fd20493cfbac49495bd80307a63e780a9a6c07e52782cc587e3bed8669e4", "tokens:15"},
+            {"fc34bf4a5bb527a4495469cb0b6385b37f568ea11624ae4935c99d530104a7d6", "tokens:15"},
+            {"f72b8398b2bd2c505ffc5a92cfd5a6f6fd04dae680df96ce3547dc4e6ef9cd02", "tokens:15"},
+            {"b622bce6a324dee6d48b5ab3a9292da67bc0d903363298c5aa3212cc3e560fc0", "tokens:15"},
+            {"f482a299d0e2705164e8abd62ca12b62a3af3f85734fea21b4590f59ed0f6917", "tokens:15"},
+            {"689e88546151b229452324a067736a6c779e35915f04adeda5460f94f3cb885a", "tokens:30"},
+            {"7809b58bb64e95f4eb281af9e93652d9738ba97270f12690d02837392fe79020", "tokens:30"},
+            {"f5a316b55637cfde6b147c068233fbe6ff35f41dcdbe9b71b3da781115f03e3c", "tokens:30"},
+            {"078529f0700c29216d0eb4b3dccda93a27adc367ed5ee4d9d8db487767b64f4a", "tokens:30"},
+            {"c77e3261baef5afc0a1b94ddeb5146cd5fc8c2b3c65f530980242f70ac18edf2", "tokens:30"},
+            {"937524e410260f86bab1cb977f3a80968c459871154141288f7c75a322887507", "tokens:30"},
+            {"cf2ec33d22af61aca371f9349fcef54ba346e02756e343a6b5df808edc55893b", "tokens:30"},
+            {"1bccfc46579bb4faa89dc4ede5abb72cd3283237edca40ca1ab7bb40667f817d", "tokens:30"},
+            {"01188f52e540beb64061f5fcb58082d4b60201c0ff4352cab3c5b9711269134e", "tokens:30"},
+            {"fa1dd444ac8423d0c43569207ecff66a06e944c5942adae41d7d3cc5e86086e8", "tokens:30"},
+            {"0c211541af3084ba50747582a36cffac0239e80daab9d599b01147bd22a748fc", "tokens:30"},
+            {"9adc191eadd57aa234025769499cb0be97b2b8df1a39aef164ab09fb3b634a2e", "tokens:30"},
+            {"dd1dd2a2e350c76370a42cb77fa12a28890a454846e8d6a14ff475950bdddea1", "tokens:30"},
+            {"3345674c27ad7b2ee5dcbbd3eb7f8117022ed8dce5fd6c8cbd2e0fc8058251c7", "tokens:30"},
+            {"ae33d53da9c15d058fcce0dfc911066e75c2cf761b127ecbbccc373bb78b5b7b", "tokens:30"},
+            {"2abcf846a8cf9425e1576aa2a10ae5b9bda6fdbbd27f6d890dd350e0f027bfae", "keys:30"},
+            {"0859ed54c9342f7ec4c505bacbd917c6bd6a45a2f5b6fc122af106c4b06313ea", "keys:30"},
+            {"72ada1b0b6bd18cbf6886e7c355e751099282c7b1b7b705d362a4b3b77051c4c", "keys:30"},
+            {"0317e75f9f4eb41bafb593f15e68cbdd24bfdc71bb28034cf580258a25505a6b", "keys:30"},
+            {"4420b064219d5583e1eb40f18da765027f803bd5de77d54b3a39ee9d38625202", "keys:30"},
+            {"359b017603d0bb9300aeb0593325506e1694a062366d0cfcb077698e6b7dbdac", "keys:30"},
+            {"a496e44d0eeeb2578b41d359f53e71c8c495dce72eeb6b6019e7820a656e2d3b", "keys:30"},
+            {"fc8f1ce1fdb85a52d3dd1517cceca15fec3c41e02501b1194e3b97fdf4b7b00b", "keys:30"},
+            {"1fe3febb40412056ec1a58b79268505f5e72b68d9a93c426fd5be263d2897fd0", "keys:30"},
+            {"0bf51da5d46fe2b0f9523368eb60c88eef85d06adef73d880b7d13e44f848870", "keys:30"},
+            {"25de490701ba1725391fdcccc6963635b8358626c04e7d42912ed46a4012e5b6", "keys:60"},
+            {"d983a0409d10e54180336bcdef507848496637269554156eeb1c0af5d3a899d5", "keys:60"},
+            {"3d3ffafdfbb4b47b850ff2972da1433a5a1c0aed8b875416dc76c84239863685", "keys:60"},
+            {"842825b46e387467da9b281fe1d67a7d03c30fe6bb956da0065a9d9ee8b86bd2", "keys:60"},
+            {"3629cf1f07069456fab4a964f7180b6d35889c7741e7647dc038cd2ca41ddac6", "keys:60"},
+            {"937127fb35121883e018232fb42429309fdef5989555ddb02a97141b748a1e89", "tokens:100"},
+            {"f13df2ac4ef8e271184eebfbf52759e0edd372f4db60c191b9991579102af258", "tokens:100"},
+            {"b5e148cfa4df40dbd60ee91388d9411e7119bb3efdf89f7fb72cd11cc0a15c37", "tokens:100"},
+            {"faaacaf631b7811ab810cc77c0f260043bbce3dcbeab5bc02941dfe1b5032b3f", "tokens:100"},
+            {"44c6347a3965b3c380d27afafbbdd20f625f53eb0dc2e3769095d4b9bf774f95", "tokens:100"},
+            {"aed059fc7b49f8400076be394370eb54356369200e9db96c81618a95b786d8a0", "admin:10:*"},
+            {"f73a74824b9c909716231b3ff8af872ba7944e6b1ddde734b580a4b7e8ca1b09", "admin:10:*"},
+            {"a3d115994fa1d2808275c8e63787d3e7740f695533722a44390c3eb4d3bdecb7", "admin:25:*"}
     };
+    /** Most crates opened at the same time. */
+    public static final int MAX_MULTI = 3;
     /** Keys are capped so a reusable code can never overflow the count. */
     public static final int MAX_KEYS = 9999;
     private static final int MAX_FAILS = 5;
@@ -320,10 +448,19 @@ public final class Crates {
     private static long dropMs;
     private static long earned;
     private static int opened;
+    // lifetime stats
+    private static int dupes;
+    private static long refunded;
+    private static int keysBought;
+    private static final Map<String, Integer> openedBy = new LinkedHashMap<>();
     /** Opens in a row without a Divine or better knife; the PITY-th one is guaranteed to be Divine or better. */
     private static int dry;
     public static final int PITY = 25;
     private static boolean quick;
+    /** Keep opening on its own after each reveal, while keys last. */
+    private static boolean auto;
+    /** How many crates one click opens (1 to MAX_MULTI). */
+    private static int multi = 1;
     private static int streak;
     private static int bestStreak;
     private static long lastDay = -1;     // local epoch day the streak was last paid
@@ -358,11 +495,46 @@ public final class Crates {
         return held.getOrDefault(crateId, 0);
     }
 
+    /** How many crates the keys held can open right now (the main menu shows this). */
     public static int heldTotal() {
         load();
-        int n = 0;
-        for (int v : held.values()) n += v;
-        return n;
+        return keys / KEYS_PER_OPEN;
+    }
+
+    /** How many crates can be opened at the same time right now, up to {@link #MAX_MULTI}. */
+    public static int canOpenCount() {
+        return Math.min(MAX_MULTI, keys() / KEYS_PER_OPEN);
+    }
+
+    public static int duplicates() {
+        load();
+        return dupes;
+    }
+
+    public static long refunded() {
+        load();
+        return refunded;
+    }
+
+    public static long earned() {
+        load();
+        return earned;
+    }
+
+    public static int keysBought() {
+        load();
+        return keysBought;
+    }
+
+    /** How often a crate has been opened. */
+    public static int openedOf(String crateId) {
+        load();
+        return openedBy.getOrDefault(crateId, 0);
+    }
+
+    /** How many different knives have come out of crates (the starter not counted). */
+    public static int uniqueFound() {
+        return ownedCount() - 1;
     }
 
     public static int opened() {
@@ -513,13 +685,14 @@ public final class Crates {
         if (can <= 0) return 0;
         tokens -= can * KEY_PRICE;
         keys += can;
+        keysBought += can;
         save(true);
         return can;
     }
 
-    /** True when this crate is held and there are enough keys to open it. */
+    /** True when there are enough keys to open a crate (any crate opens with the same keys). */
     public static boolean canOpen(Crate c) {
-        return held(c.id) > 0 && keys() >= KEYS_PER_OPEN;
+        return keys() >= KEYS_PER_OPEN;
     }
 
     public record Result(Item item, Crate crate, boolean duplicate, int refund) {
@@ -541,6 +714,28 @@ public final class Crates {
     public static void setQuick(boolean on) {
         load();
         quick = on;
+        save(true);
+    }
+
+    public static boolean auto() {
+        load();
+        return auto;
+    }
+
+    public static void setAuto(boolean on) {
+        load();
+        auto = on;
+        save(true);
+    }
+
+    public static int multi() {
+        load();
+        return multi;
+    }
+
+    public static void setMulti(int n) {
+        load();
+        multi = Math.max(1, Math.min(MAX_MULTI, n));
         save(true);
     }
 
@@ -598,23 +793,44 @@ public final class Crates {
         return Math.max(1, PITY - dry);
     }
 
-    /** Opens one crate with one key. Returns null when either is missing. */
+    /** Opens one crate with {@link #KEYS_PER_OPEN} keys. Returns null when there are not enough keys. */
     public static Result open(Crate c) {
+        Result r = openOne(c);
+        if (r != null) save(true);
+        return r;
+    }
+
+    /** Opens up to n crates of one kind at the same time; as many as the keys allow. */
+    public static List<Result> open(Crate c, int n) {
+        List<Result> out = new ArrayList<>();
+        for (int i = 0; i < Math.min(n, MAX_MULTI); i++) {
+            Result r = openOne(c);
+            if (r == null) break;
+            out.add(r);
+        }
+        if (!out.isEmpty()) save(true);
+        return out;
+    }
+
+    private static Result openOne(Crate c) {
         load();
-        if (held(c.id) <= 0 || keys < KEYS_PER_OPEN) return null;
-        held.merge(c.id, -1, Integer::sum);
-        if (held.get(c.id) <= 0) held.remove(c.id);
+        if (keys < KEYS_PER_OPEN) return null;
         keys -= KEYS_PER_OPEN;
         opened++;
+        openedBy.merge(c.id, 1, Integer::sum);
         Item it = dry + 1 >= PITY ? rollAtLeast(c, Rarity.DIVINE) : roll(c);
         dry = it.rarity.ordinal() >= Rarity.DIVINE.ordinal() ? 0 : dry + 1;
         boolean dup = owns(it.id);
         int refund = dup ? it.rarity.refund : 0;
-        if (dup) tokens += refund;
-        else owned.add(it.id);
+        if (dup) {
+            tokens += refund;
+            dupes++;
+            refunded += refund;
+        } else {
+            owned.add(it.id);
+        }
         history.add(0, new Drop(it.id, c.id, System.currentTimeMillis(), dup));
         while (history.size() > HISTORY_MAX) history.remove(history.size() - 1);
-        save(true);
         return new Result(it, c, dup, refund);
     }
 
@@ -637,11 +853,20 @@ public final class Crates {
             boolean reusable = parts.length > 2 && parts[2].equals("*");
             if (!reusable && redeemed.contains(h)) return new Redeem(false, "That code has already been used on this account.");
             if (parts[0].equals("admin")) {
-                for (Crate cr : CRATES) held.merge(cr.id, n, Integer::sum);
+                // n openings of every crate, as keys, plus tokens
                 int add = Math.min(n * CRATES.size() * KEYS_PER_OPEN, MAX_KEYS - keys);
                 keys += Math.max(0, add);
+                tokens += n * 50;
+                if (!reusable) redeemed.add(h);
                 save(true);
-                return new Redeem(true, "Admin: +" + n + " of every crate and +" + Math.max(0, add) + " keys.");
+                return new Redeem(true, "Admin: +" + Math.max(0, add) + " keys and +" + n * 50 + " tokens.");
+            }
+            if (parts[0].equals("tokens")) {
+                tokens += n;
+                earned += n;
+                if (!reusable) redeemed.add(h);
+                save(true);
+                return new Redeem(true, "Added " + n + " tokens. You now have " + tokens + ".");
             }
             if (parts[0].equals("keys")) {
                 int add = Math.min(n, MAX_KEYS - keys);
@@ -652,21 +877,12 @@ public final class Crates {
                 return new Redeem(true, "Added " + add + (add == 1 ? " key" : " keys") + ". You now hold " + keys + ".");
             }
             if (!reusable) redeemed.add(h);
-            List<String> got = new ArrayList<>();
-            List<String> which = new ArrayList<>();
-            if (parts[0].equals("all")) for (Crate cr : CRATES) which.add(cr.id);
-            else if (parts[0].equals("random")) for (int i = 0; i < n; i++) which.add(CRATES.get(RNG.nextInt(CRATES.size())).id);
-            else for (String s : parts[0].split("\\+")) for (int i = 0; i < n; i++) which.add(s);
-            int keysAdded = 0;
-            for (String id : which) {
-                held.merge(id, 1, Integer::sum);
-                int add = Math.min(KEYS_PER_OPEN, MAX_KEYS - keys);
-                keys += Math.max(0, add);
-                keysAdded += Math.max(0, add);
-                got.add(crate(id).name);
-            }
+            // codes from before keys opened any crate gave crates: each one is now the keys to open one
+            int crates = parts[0].equals("all") ? CRATES.size() : parts[0].equals("random") ? n : parts[0].split("\\+").length * n;
+            int add = Math.max(0, Math.min(crates * KEYS_PER_OPEN, MAX_KEYS - keys));
+            keys += add;
             save(true);
-            return new Redeem(true, "Unlocked " + summary(got) + " and " + keysAdded + " keys to open " + (which.size() == 1 ? "it" : "them") + ".");
+            return new Redeem(true, "Added " + add + " keys: enough to open " + add / KEYS_PER_OPEN + (add / KEYS_PER_OPEN == 1 ? " crate." : " crates."));
         }
         if (++fails >= MAX_FAILS) {
             fails = 0;
@@ -715,15 +931,14 @@ public final class Crates {
             tokens++;
             earned++;
             dirty = true;
-            if (tokens == KEY_PRICE * KEYS_PER_OPEN) Zeus.toast("Zeus Crates: " + tokens + " tokens, enough keys to open a crate", true);
+            if (tokens == KEY_PRICE * KEYS_PER_OPEN) Zeus.toast("Zeus Crates: " + tokens + " tokens, enough to open a crate", true);
             else Zeus.toast("Zeus Crates: +1 Zeus token (" + tokens + ")", true);
         }
         if (dropMs >= DROP_MS) {
             dropMs -= DROP_MS;
-            Crate c = CRATES.get(RNG.nextInt(CRATES.size()));
-            held.merge(c.id, 1, Integer::sum);
+            keys = Math.min(MAX_KEYS, keys + KEYS_PER_OPEN);
             dirty = true;
-            Zeus.toast("Zeus Crates: a " + c.name + " dropped for you!", true);
+            Zeus.toast("Zeus Crates: a free crate! +" + KEYS_PER_OPEN + " keys", true);
         }
         if (now - lastSave > 30_000L) save(false);
     }
@@ -781,8 +996,14 @@ public final class Crates {
         dropMs = 0;
         earned = 0;
         opened = 0;
+        dupes = 0;
+        refunded = 0;
+        keysBought = 0;
+        openedBy.clear();
         dry = 0;
         quick = false;
+        auto = false;
+        multi = 1;
         streak = 0;
         bestStreak = 0;
         lastDay = -1;
@@ -819,10 +1040,19 @@ public final class Crates {
             earned = d.has("earned") ? d.get("earned").getAsLong() : 0;
             opened = d.has("opened") ? d.get("opened").getAsInt() : 0;
             dry = d.has("dry") ? Math.max(0, Math.min(PITY - 1, d.get("dry").getAsInt())) : 0;
-            for (var e : d.getAsJsonObject("crates").entrySet()) held.put(e.getKey(), e.getValue().getAsInt());
+            // crates held from before any crate opened with keys: each becomes the keys to open one
+            for (var e : d.getAsJsonObject("crates").entrySet()) keys += Math.max(0, e.getValue().getAsInt()) * KEYS_PER_OPEN;
+            keys = Math.min(MAX_KEYS, keys);
+            held.clear();
+            dupes = d.has("dupes") ? d.get("dupes").getAsInt() : 0;
+            refunded = d.has("refunded") ? d.get("refunded").getAsLong() : 0;
+            keysBought = d.has("bought") ? d.get("bought").getAsInt() : 0;
+            if (d.has("openedBy")) for (var e : d.getAsJsonObject("openedBy").entrySet()) openedBy.put(e.getKey(), e.getValue().getAsInt());
             for (var e : d.getAsJsonArray("owned")) owned.add(e.getAsString());
             for (var e : d.getAsJsonArray("redeemed")) redeemed.add(e.getAsString());
             quick = d.has("quick") && d.get("quick").getAsBoolean();
+            auto = d.has("auto") && d.get("auto").getAsBoolean();
+            multi = d.has("multi") ? Math.max(1, Math.min(MAX_MULTI, d.get("multi").getAsInt())) : 1;
             Quests.read(d);
             if (d.has("streak")) {
                 streak = d.get("streak").getAsInt();
@@ -862,9 +1092,13 @@ public final class Crates {
         d.addProperty("earned", earned);
         d.addProperty("opened", opened);
         d.addProperty("dry", dry);
-        JsonObject c = new JsonObject();
-        held.forEach(c::addProperty);
-        d.add("crates", c);
+        d.add("crates", new JsonObject());
+        d.addProperty("dupes", dupes);
+        d.addProperty("refunded", refunded);
+        d.addProperty("bought", keysBought);
+        JsonObject ob = new JsonObject();
+        openedBy.forEach(ob::addProperty);
+        d.add("openedBy", ob);
         JsonArray o = new JsonArray();
         owned.forEach(o::add);
         d.add("owned", o);
@@ -872,6 +1106,8 @@ public final class Crates {
         redeemed.forEach(r::add);
         d.add("redeemed", r);
         d.addProperty("quick", quick);
+        d.addProperty("auto", auto);
+        d.addProperty("multi", multi);
         Quests.write(d);
         d.addProperty("streak", streak);
         d.addProperty("best", bestStreak);
