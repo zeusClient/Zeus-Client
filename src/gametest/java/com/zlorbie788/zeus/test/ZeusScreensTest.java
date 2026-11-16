@@ -447,6 +447,10 @@ public class ZeusScreensTest implements FabricClientGameTest {
             filmShorts(ctx);
             return;
         }
+        if ("edit".equals(part)) {
+            filmEdit(ctx);
+            return;
+        }
         if ("shortskeys".equals(part)) {
             // the keyboard at GUI scale 2: the key list stays below the board when a key is pressed
             ctx.getInput().resizeWindow(1920, 1080);
@@ -652,6 +656,116 @@ public class ZeusScreensTest implements FabricClientGameTest {
             ctx.runOnClient(c -> KnifeSwing.equipHd(Crates.hdOf("chroma_phoenix")));
             ctx.runOnClient(c -> KnifeSwing.pressTrick());
             shoot(ctx, "sh_ph_trick", 100);
+            ctx.setScreen(() -> null);
+        }
+    }
+
+    /** Switches a module on or off by its id. */
+    private static void mod(String id, boolean on) {
+        com.zlorbie788.zeus.core.Module m = com.zlorbie788.zeus.core.Zeus.get(id);
+        if (m != null) m.setEnabled(on);
+    }
+
+    /** Turns the camera a little every frame while filming, for moving shots. */
+    private static void shootTurning(ClientGameTestContext ctx, String name, int n, float yawStep, float pitchStep) {
+        for (int i = 0; i < n; i++) {
+            ctx.runOnClient(c -> {
+                com.zlorbie788.zeus.core.Clock.manual += FRAME;
+                if (c.player != null) {
+                    c.player.setYRot(c.player.getYRot() + yawStep);
+                    c.player.setXRot(c.player.getXRot() + pitchStep);
+                }
+            });
+            ctx.waitTicks(1);
+            ctx.takeScreenshot(String.format("film_%s_%04d", name, i));
+        }
+    }
+
+    /** ZEUS_FILM=edit: the rest of the client for the fast edit: themes, screens, HUD, skies, the pause menu. */
+    private static void filmEdit(ClientGameTestContext ctx) {
+        ctx.getInput().resizeWindow(1920, 1080);
+        ctx.runOnClient(c -> {
+            c.options.guiScale().set(0);
+            c.resizeDisplay();
+        });
+        ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual = System.nanoTime());
+        // the panel in the rainbow theme, then the colour palettes
+        ctx.runOnClient(c -> UiSettings.ACCENT.set(com.zlorbie788.zeus.ui.Themes.RAINBOW));
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.ZeusScreen());
+        shoot(ctx, "ed_rainbow", 75);
+        ctx.runOnClient(c -> UiSettings.ACCENT.set(0));
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.PaletteScreen(null));
+        shoot(ctx, "ed_palette", 50);
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.ZeusAboutScreen(null));
+        shoot(ctx, "ed_about", 50);
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.ZeusCreditsScreen(null));
+        shoot(ctx, "ed_credits", 50);
+        ctx.setScreen(() -> null);
+        ctx.runOnClient(c -> c.options.renderDistance().set(5));
+        try (TestSingleplayerContext sp = ctx.worldBuilder().setUseConsistentSettings(false).create()) {
+            // real terrain draws slowly without a graphics card: give it a fixed while instead of waiting for every chunk
+            ctx.waitTicks(400);
+            sp.getServer().runCommand("gamerule advance_time false");
+            sp.getServer().runCommand("gamerule advance_weather false");
+            sp.getServer().runCommand("weather clear");
+            sp.getServer().runCommand("gamemode survival @a");
+            sp.getServer().runCommand("time set 1000");
+            for (String[] a : new String[][] {{"head", "diamond_helmet"}, {"chest", "diamond_chestplate"}, {"legs", "diamond_leggings"}, {"feet", "diamond_boots"}})
+                sp.getServer().runCommand("item replace entity @a armor." + a[0] + " with minecraft:" + a[1]);
+            sp.getServer().runCommand("item replace entity @a weapon.offhand with minecraft:totem_of_undying");
+            sp.getServer().runCommand("effect give @a minecraft:speed infinite 1 true");
+            sp.getServer().runCommand("effect give @a minecraft:strength infinite 0 true");
+            sp.getServer().runCommand("effect give @a minecraft:night_vision infinite 0 true");
+            sp.getServer().runCommand("effect give @a minecraft:resistance infinite 4 true");
+            ctx.waitTicks(20);
+            for (String id : new String[] {"armorhud", "potionhud", "keystrokes", "compass", "coordinates", "watermark", "customcrosshair", "blockoutline"}) {
+                String m = id;
+                ctx.runOnClient(c -> mod(m, true));
+            }
+            ctx.runOnClient(c -> {
+                com.zlorbie788.zeus.core.Clock.manual = System.nanoTime();
+                c.player.setXRot(8f);
+            });
+            ctx.waitTicks(10);
+            // the HUD in a sunny world, then its editor
+            shootTurning(ctx, "ed_hud", 70, 0.35f, 0f);
+            ctx.setScreen(() -> new com.zlorbie788.zeus.ui.HudEditorScreen(null));
+            shoot(ctx, "ed_hudedit", 55);
+            ctx.setScreen(() -> null);
+            // a knife with the HUD round it
+            ctx.runOnClient(c -> KnifeSwing.equipHd(Crates.hdOf("tac_lightning")));
+            shoot(ctx, "ed_knifehud_draw", 15);
+            ctx.runOnClient(c -> KnifeSwing.pressTrick());
+            shootTurning(ctx, "ed_knifehud", 80, 0.25f, 0f);
+            // the pause menu
+            ctx.setScreen(() -> new net.minecraft.client.gui.screens.PauseScreen(true));
+            shoot(ctx, "ed_pause", 45);
+            ctx.setScreen(() -> null);
+            // night: the Atmosphere sky, looking up and turning
+            for (String id : new String[] {"armorhud", "potionhud", "keystrokes", "compass", "coordinates", "customcrosshair"}) {
+                String m = id;
+                ctx.runOnClient(c -> mod(m, false));
+            }
+            sp.getServer().runCommand("effect clear @a minecraft:night_vision");
+            sp.getServer().runCommand("time set 18000");
+            ctx.runOnClient(c -> {
+                mod("atmosphere", true);
+                c.options.hideGui = true;
+                c.player.setXRot(-32f);
+            });
+            ctx.waitTicks(20);
+            shootTurning(ctx, "ed_sky", 110, 0.45f, -0.04f);
+            // sunset with a knife
+            sp.getServer().runCommand("time set 12600");
+            ctx.runOnClient(c -> {
+                c.options.hideGui = false;
+                c.player.setXRot(-4f);
+                KnifeSwing.equipHd(Crates.hdOf("chroma_crystal"));
+            });
+            ctx.waitTicks(10);
+            ctx.runOnClient(c -> KnifeSwing.pressTrick());
+            shootTurning(ctx, "ed_sunset", 85, -0.3f, 0f);
+            ctx.runOnClient(c -> mod("atmosphere", false));
             ctx.setScreen(() -> null);
         }
     }
