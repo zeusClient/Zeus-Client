@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-The six Chroma knives, traced 1:1 from ref/chroma_six.png: the outline and every pixel of colour come from the
+The six Chroma knives, traced 1:1 from the reference pictures (karambit, M9, crystal and phoenix from
+ref/chroma_four.png, butterfly and kunai from ref/chroma_six.png): the outline and every pixel of colour come from the
 picture itself (cut out with GrabCut, holes placed by hand), laid onto the HD knife grid with Lanczos sampling,
 then given the same 3D treatment as the other HD knives (rounded handles, bevelled blades, part thicknesses).
 
   python3 tools/knives_hd/make_chroma.py            bake all six, then cut the butterflies into pieces (make_pieces.py)
+  python3 tools/knives_hd/make_chroma.py chroma_m9  bake only the knives named, leaving the others untouched
 """
 import json
 import os
@@ -16,18 +18,23 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-REF = os.path.join(HERE, "ref", "chroma_six.png")
+REF = os.path.join(HERE, "ref", "chroma_six.png")      # butterfly and kunai
+REF4 = os.path.join(HERE, "ref", "chroma_four.png")    # karambit, M9, crystal, phoenix
 
 # picture boxes (x0, y0, x1, y1), bottom row of the knife, and how tall the sheet must be for its width
 KNIVES = {
-    "chroma_karambit": dict(box=(58, 133, 216, 496), name="Karambit · Galaxy", glow="#b85cff", cell=448,
-                            guard=257, ring=425, holes=[("ellipse", 120, 449, 20, 21)], spine_right=False),
-    "chroma_m9": dict(box=(238, 68, 357, 498), name="M9 Bayonet · Molten Core", glow="#ff6a1c", cell=288,
-                      guard=318, guard_end=327, holes=[("rect", 293, 145, 302, 162)], spine_right=True),
-    "chroma_crystal": dict(box=(393, 48, 494, 496), name="Bowie · Prism Shard", glow="#8fe3ff", cell=256,
-                           guard=300, holes=[], spine_right=True),
-    "chroma_phoenix": dict(box=(548, 48, 650, 498), name="Bowie · Gilded Phoenix", glow="#ffc24d", cell=256,
-                           guard=312, guard_end=322, pommel=470, holes=[], spine_right=True),
+    # these four come from ref/chroma_four.png; "length" keeps each one as long (in knife units) as it was before
+    "chroma_karambit": dict(ref=REF4, box=(30, 89, 141, 358), length=21.454, name="Karambit · Galaxy", glow="#b85cff",
+                            cell=448, guard=200, ring=304, holes=[("ellipse", 76, 326, 13, 13.5)], spine_right=False),
+    "chroma_m9": dict(ref=REF4, box=(168, 40, 249, 359), length=25.806, name="M9 Bayonet · Molten Core", glow="#ff6a1c",
+                      cell=288, guard=230, guard_end=236, holes=[("rect", 207, 97, 213, 110)], spine_right=True,
+                      sure=[(196, 236, 217, 354), (174, 229, 244, 232)]),
+    "chroma_crystal": dict(ref=REF4, box=(285, 27, 353, 362), length=26.848, name="Bowie · Prism Shard", glow="#8fe3ff",
+                           cell=256, guard=210, holes=[], spine_right=True,
+                           sure=[(306, 214, 330, 348), (292, 212, 344, 217)]),
+    "chroma_phoenix": dict(ref=REF4, box=(402, 27, 469, 357), length=26.542, name="Bowie · Gilded Phoenix", glow="#ffc24d",
+                           cell=256, guard=222, guard_end=230, pommel=340, holes=[], spine_right=True,
+                           sure=[(406, 223, 466, 227)]),
     "chroma_butterfly": dict(box=(698, 60, 792, 497), name="Butterfly · Stardust", glow="#e8d49a", cell=256,
                              guard=276, holes=[], spine_right=True, pins=((737.5, 277.0), (762.5, 277.0))),
     "chroma_kunai": dict(box=(858, 96, 932, 497), name="Kunai · Spectrum", glow="#7cf7d4", cell=256,
@@ -37,14 +44,14 @@ KNIVES = {
                                                           ("ellipse", 896.5, 462.5, 2.5, 2.5), ("ellipse", 896.5, 476, 4.5, 4.5)],
                          spine_right=True),
 }
-SCALE = 27.4 / 447.0          # knife units per picture pixel, the same for all six so their sizes match the picture
+SCALE = 27.4 / 447.0          # knife units per picture pixel in chroma_six.png; knives with a "length" get their own scale
 U_START = 0.3
 
 
 def cut(name):
     """Foreground mask of one knife in full-picture coordinates (GrabCut inside its box, holes cut)."""
-    im = cv2.imread(REF)
     k = KNIVES[name]
+    im = cv2.imread(k.get("ref", REF))
     x0, y0, x1, y1 = k["box"]
     pad = 10
     X0, Y0, X1, Y1 = x0 - pad, y0 - pad, x1 + pad, min(im.shape[0], y1 + 30)
@@ -52,7 +59,15 @@ def cut(name):
     mask = np.zeros(crop.shape[:2], np.uint8)
     bg = np.zeros((1, 65), np.float64)
     fg = np.zeros((1, 65), np.float64)
-    cv2.grabCut(crop, mask, (pad, pad, x1 - x0, y1 - y0), bg, fg, 8, cv2.GC_INIT_WITH_RECT)
+    if k.get("sure"):
+        # dark handles fade into the dark backdrop: boxes marked "sure" are knife for certain
+        mask[:] = cv2.GC_BGD
+        mask[pad:pad + y1 - y0, pad:pad + x1 - x0] = cv2.GC_PR_FGD
+        for sx0, sy0, sx1, sy1 in k["sure"]:
+            mask[sy0 - Y0:sy1 - Y0 + 1, sx0 - X0:sx1 - X0 + 1] = cv2.GC_FGD
+        cv2.grabCut(crop, mask, None, bg, fg, 8, cv2.GC_INIT_WITH_MASK)
+    else:
+        cv2.grabCut(crop, mask, (pad, pad, x1 - x0, y1 - y0), bg, fg, 8, cv2.GC_INIT_WITH_RECT)
     m = np.where((mask == 1) | (mask == 3), 255, 0).astype(np.uint8)
     n, lab, stats, _ = cv2.connectedComponentsWithStats(m)
     if n > 1:
@@ -75,7 +90,9 @@ def mapping(name):
     ybot = ys.max() + 0.5
     rows = full[int(ybot - (ybot - ys.min()) * 0.33):int(ybot), :] > 0.5
     xc = np.median(np.nonzero(rows)[1]) + 0.5
-    return full, float(ybot), float(xc)
+    k = KNIVES[name]
+    scale = k["length"] / (ys.max() - ys.min() + 1) if "length" in k else SCALE
+    return full, float(ybot), float(xc), scale
 
 
 def build(name):
@@ -84,12 +101,12 @@ def build(name):
     from hd_lib import U, V, GW, GH, GP, HALF, smoothstep, sdf_inside, lerp, hexc
     from scipy import ndimage
     k = KNIVES[name]
-    pic = cv2.imread(REF, cv2.IMREAD_COLOR)[:, :, ::-1].astype(np.float32) / 255.0
-    full, ybot, xc = mapping(name)
+    pic = cv2.imread(k.get("ref", REF), cv2.IMREAD_COLOR)[:, :, ::-1].astype(np.float32) / 255.0
+    full, ybot, xc, scale = mapping(name)
     # grid (u, v) -> picture (x, y): u runs up the knife, v across, spine (the picture's right) towards -v
     sgn = -1.0          # every knife in the picture has its spine on the right
-    py = (ybot - (U - U_START) / SCALE).astype(np.float32)
-    px = (xc + sgn * V / SCALE).astype(np.float32)
+    py = (ybot - (U - U_START) / scale).astype(np.float32)
+    px = (xc + sgn * V / scale).astype(np.float32)
     alb = cv2.remap(pic, px, py, cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_REPLICATE)
     alb = np.clip(alb, 0, 1)
     msk = np.clip(cv2.remap(full, px, py, cv2.INTER_LINEAR, borderValue=0), 0, 1)
@@ -98,10 +115,10 @@ def build(name):
     alb = np.clip(alb + 0.45 * (alb - soft), 0, 1)
 
     def u_of(y):
-        return U_START + (ybot - y) * SCALE
+        return U_START + (ybot - y) * scale
 
     def pic_to_grid(x, y):
-        return u_of(y), (x - xc) / sgn * SCALE
+        return u_of(y), (x - xc) / sgn * scale
 
     gu = u_of(k["guard"])
     gu_end = u_of(k.get("guard_end", k["guard"]))
@@ -150,7 +167,7 @@ def build(name):
         kn.part("handle", 0.0, gu_end, 0.95 if name == "chroma_m9" else 0.6, 0.5)
         kn.part("guard", gu_end, gu, 1.0 if name == "chroma_m9" else 0.3, 0.2)
     else:
-        kn.part("handle", 0.0, gu, 0.9 if name != "chroma_crystal" else 0.55, 0.45)
+        kn.part("handle", 0.0, gu, 0.9, 0.45)
     kn.part("blade", gu, max(top, gu + 1) + 0.2, 0.24, 0.0)
     entry = T.write(kn, min_level=1)
     if T.HALF != 3.55:
@@ -167,23 +184,28 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--one":
         build(sys.argv[2])
         return
-    jobs = [(n, None) for n in KNIVES]
+    names = sys.argv[1:] or list(KNIVES)
+    unknown = [n for n in names if n not in KNIVES]
+    if unknown:
+        sys.exit("unknown knife: " + ", ".join(unknown))
     procs = []
-    for n, _ in jobs:
+    for n in names:
         env = dict(os.environ, KNIFE_CELL_H=str(KNIVES[n]["cell"]))
         procs.append(subprocess.Popen([sys.executable, os.path.abspath(__file__), "--one", n], env=env))
     if any(pr.wait() != 0 for pr in procs):
         sys.exit("a knife failed to bake")
     import make_tactical as T
     meta = json.load(open(T.OUT_JSON))
-    knives = [x for x in meta["knives"] if not x["id"].startswith("chroma_")]
-    for n in KNIVES:
-        knives.append(json.load(open(f"/tmp/chroma_{n}.json")))
+    # replace the baked knives in place, so the rest (and their order) stay exactly as they were
+    baked = {n: json.load(open(f"/tmp/chroma_{n}.json")) for n in names}
+    knives = [baked.pop(x["id"], x) for x in meta["knives"]]
+    knives.extend(baked.values())
     meta["knives"] = knives
     with open(T.OUT_JSON, "w") as f:
         json.dump(meta, f, indent=1)
     print("wrote", len(knives), "knives")
-    subprocess.check_call([sys.executable, os.path.join(HERE, "make_pieces.py")])
+    if "chroma_butterfly" in names:
+        subprocess.check_call([sys.executable, os.path.join(HERE, "make_pieces.py")])
 
 
 if __name__ == "__main__":
