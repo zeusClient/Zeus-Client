@@ -33,6 +33,8 @@ public final class Zeus {
     public static final String VERSION = "0.9.9.0";
 
     private static final int DEFAULTS_REV = 3;
+    /** Raised when the look of the interface changes: UI settings marked resetOnRev go back to their new defaults once. */
+    private static final int UI_REV = 1;
 
     private static final Map<String, Module> MODULES = new LinkedHashMap<>();
     private static List<Module> ALL_MODULES = List.of();
@@ -192,13 +194,18 @@ public final class Zeus {
                 LOG.warn("Could not switch the profile for this server", e);
             }
             try {
-                com.zlorbie788.zeus.mods.Exposure.onWorldEntered();
+                com.zlorbie788.zeus.mods.Oracle.onWorldEntered();
             } catch (RuntimeException e) {
-                LOG.warn("Could not start the exposure meter", e);
+                LOG.warn("Could not start the oracle", e);
             }
         }
         wasInWorld = in;
         if (!in) {
+            try {
+                com.zlorbie788.zeus.mods.Oracle.onWorldLeft();
+            } catch (RuntimeException e) {
+                LOG.warn("Could not close the oracle", e);
+            }
             flushIfDue();
             return;
         }
@@ -394,6 +401,7 @@ public final class Zeus {
         root.addProperty("schema", 2);
         root.addProperty("clientVersion", VERSION);
         root.addProperty("defaults", DEFAULTS_REV);
+        root.addProperty("uiRev", UI_REV);
         JsonObject mods = new JsonObject();
         for (Module m : MODULES.values()) {
             JsonObject o = new JsonObject();
@@ -496,7 +504,9 @@ public final class Zeus {
             for (Setting st : m.settings()) restoreSafely(st, newDefaults && st.resetsOnRev() ? new JsonObject() : settings, m.id);
         }
         JsonObject ui = objectOrEmpty(root, "ui");
-        for (Setting st : UI.settings()) restoreSafely(st, ui, "ui");
+        int uiRev = root.has("uiRev") && root.get("uiRev").isJsonPrimitive() ? root.get("uiRev").getAsInt() : 0;
+        boolean newLook = uiRev < UI_REV;
+        for (Setting st : UI.settings()) restoreSafely(st, newLook && st.resetsOnRev() ? new JsonObject() : ui, "ui");
         try {
             com.zlorbie788.zeus.ui.HudLayout.load(objectOrEmpty(root, "hudLayout"));
             com.zlorbie788.zeus.ui.UiState.load(root);

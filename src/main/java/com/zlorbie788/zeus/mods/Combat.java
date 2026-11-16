@@ -29,39 +29,6 @@ import java.util.concurrent.ThreadLocalRandom;
 public final class Combat {
     private Combat() {}
 
-    public static final class AttributeSwap extends Module {
-        private final Setting.Choice mode = add(new Setting.Choice("Mode", "Smart finds a sword and mace in your hotbar. Simple alternates two selected slots.", 0, "Smart sword / mace", "Simple slots"));
-        private final Setting.Num first = add(new Setting.Num("First hotbar slot", "First slot for Simple mode (1-9).", 1, 1, 9, 1, "" )).showIf(() -> mode.index() == 1);
-        private final Setting.Num second = add(new Setting.Num("Second hotbar slot", "Second slot for Simple mode (1-9).", 2, 1, 9, 1, "" )).showIf(() -> mode.index() == 1);
-        private int lastSmart = -1;
-        public AttributeSwap() { super("attributeswap", "Attribute Swap", "Quickly alternates your hotbar between a sword and mace, or two chosen slots. Bind a key in Controls.", Category.COMBAT); }
-        public void swap(Minecraft mc) {
-            if (!enabled() || mc.player == null || mc.level == null || mc.screen != null) return;
-            var inv = mc.player.getInventory();
-            int a, b;
-            if (mode.index() == 0) {
-                a = -1; b = -1;
-                for (int i = 0; i < 9; i++) {
-                    var st = inv.getItem(i);
-                    if (st.is(net.minecraft.world.item.Items.MACE)) b = i;
-                    else if (Names.item(st).endsWith("_sword")) a = i;
-                }
-                if (a < 0 || b < 0) { com.zlorbie788.zeus.core.Zeus.toast("Need a sword and mace in your hotbar", false); return; }
-                int current = inv.getSelectedSlot();
-                inv.setSelectedSlot(current == a ? b : current == b ? a : (lastSmart == a ? b : a));
-                lastSmart = inv.getSelectedSlot();
-            } else {
-                a = (int) first.get() - 1; b = (int) second.get() - 1;
-                if (a == b) { com.zlorbie788.zeus.core.Zeus.toast("Choose two different hotbar slots", false); return; }
-                if (inv.getItem(a).isEmpty() || inv.getItem(b).isEmpty()) {
-                    com.zlorbie788.zeus.core.Zeus.toast("Both Simple slots need an item", false);
-                    return;
-                }
-                inv.setSelectedSlot(inv.getSelectedSlot() == a ? b : a);
-            }
-        }
-    }
-
     public static final class KillAura extends Module {
         private final Setting.Num range = add(new Setting.Num("Range", "How far away a target can be.", 4.2, 2.5, 6.0, 0.1, " blocks"));
         private final Setting.Bool hostiles = add(new Setting.Bool("Monsters", "Attack hostile mobs.", true));
@@ -107,7 +74,10 @@ public final class Combat {
             if (m == 0 && System.currentTimeMillis() < nextHit) return;
             if (legit && me.getAttackStrengthScale(0f) < 0.99f) return;
             if (m != 0 && full.on() && me.getAttackStrengthScale(0f) < 0.95f) return;
-            double reach = legit ? Math.min(range.get(), 3.1) : range.get();
+            // The Reach module widens what the game allows; the aura should use it, not sit at the
+            // slider value while the server would accept a hit from further out.
+            double allowed = Math.max(range.get(), Reach.entityRange());
+            double reach = legit ? Math.min(allowed, 3.35) : allowed;
             double fovDeg = legit ? Math.min(fov.get(), 100.0) : fov.get();
             double r2 = reach * reach;
             Vec3 look = me.getLookAngle();
@@ -124,7 +94,9 @@ public final class Combat {
                     if (hostile ? !hostiles.on() : !animals.on()) continue;
                 }
                 double dist = mc.player.distanceToSqr(e);
-                if (dist > r2) continue;
+                if (dist > r2 + 4.0) continue;
+                // Measure the way the server measures: eyes to the nearest point of the hitbox.
+                if (Aim.reachTo(e) > reach) continue;
                 if (fovDeg < 359.0) {
                     Vec3 to = e.getBoundingBox().getCenter().subtract(me.getEyePosition());
                     if (to.lengthSqr() > 1e-6 && to.normalize().dot(look) < cone) continue;
@@ -155,7 +127,6 @@ public final class Combat {
                     return;
                 }
             }
-            if (Ghost.skipSwing()) return;
             if (confirm.on() && Hits.cold(best.getId())) {
                 target = null;
                 return;
@@ -168,13 +139,15 @@ public final class Combat {
             } else if (silent.on()) {
                 Aim.look(aimAt);
             }
-            if (legit) {
-                if (best.getId() != lastTargetId) {
-                    lastTargetId = best.getId();
-                    reactAt = System.currentTimeMillis() + 130 + ThreadLocalRandom.current().nextLong(130);
-                }
-                if (System.currentTimeMillis() < reactAt) return;
+            // Nothing human hits the very tick a target walks into range, so both styles take a
+            // short, uneven moment to react before the first swing on a new target.
+            if (best.getId() != lastTargetId) {
+                lastTargetId = best.getId();
+                reactAt = System.currentTimeMillis() + (legit
+                        ? 130 + ThreadLocalRandom.current().nextLong(130)
+                        : 45 + ThreadLocalRandom.current().nextLong(85));
             }
+            if (System.currentTimeMillis() < reactAt) return;
             if (m == 0) {
                 double interval = 1000.0 / rate.get();
                 if (timing.on()) interval *= ThreadLocalRandom.current().nextDouble(0.88, 1.12);
@@ -338,7 +311,7 @@ public final class Combat {
             Vec3 eye = me.getEyePosition();
             Vec3 look = me.getLookAngle();
             double cone = Math.cos(Math.toRadians(fov.get() / 2.0));
-            double r = range.get();
+            double r = Math.max(range.get(), Reach.entityRange());
             if (locked != null && sticky.on()) {
                 if (stillGood(mc, locked, eye, look, cone, r)) return locked;
             }
@@ -528,6 +501,7 @@ public final class Combat {
         private final Setting.Bool jitter = add(new Setting.Bool("Randomise timing", "Vary the time between clicks a little, like a hand.", true));
         private final Setting.Bool human = add(new Setting.Bool("Human pauses", "Take a short pause every few seconds, so the clicking is not perfectly continuous.", true));
         private final Setting.Bool hold = add(new Setting.Bool("Only while the button is held", "Off: it clicks all the time.", true));
+        private final Setting.Bool charged = add(new Setting.Bool("Only when the swing is charged", "Waits for the attack cooldown before hitting, so the clicking rate never outruns what a hand can do.", true));
         private final Random rng = new Random();
         private long nextLeft;
         private long nextRight;
@@ -562,9 +536,15 @@ public final class Combat {
                 nextLeft = now + delay();
                 HitResult hit = mc.hitResult;
                 if (hit instanceof EntityHitResult ehr) {
-                    Hits.attempt(ehr.getEntity());
-                    mc.gameMode.attack(mc.player, ehr.getEntity());
-                    mc.player.swing(InteractionHand.MAIN_HAND);
+                    // Ten clicks a second at a mob is the loudest attack-rate tell there is; a
+                    // swinging arm has to wait for the cooldown just like a real one.
+                    if (charged.on() && mc.player.getAttackStrengthScale(0f) < 0.95f) {
+                        nextLeft = now + 40;
+                    } else {
+                        Hits.attempt(ehr.getEntity());
+                        mc.gameMode.attack(mc.player, ehr.getEntity());
+                        mc.player.swing(InteractionHand.MAIN_HAND);
+                    }
                 } else if (hit instanceof BlockHitResult bhr && bhr.getType() != HitResult.Type.MISS) {
                     BlockPos pos = bhr.getBlockPos();
                     if (pos.equals(breakingBlock)) mc.gameMode.continueDestroyBlock(pos, bhr.getDirection());
@@ -597,8 +577,11 @@ public final class Combat {
         private final Setting.Num entity = add(new Setting.Num("Attack reach", "How far you can hit mobs. Normal is 3. Servers usually refuse anything past about 4.", 4, 3, 12, 0.5, " blocks"));
         private final Setting.Bool safe = add(new Setting.Bool("Server-safe", "Cap the bonus at what ordinary server reach checks accept, so the module does not stand out. Off: use the full sliders, which most servers refuse.", true));
 
+        private static volatile Reach instance;
+
         public Reach() {
             super("reach", "Reach", "Break, place and hit from further away.", Category.COMBAT);
+            instance = this;
             block.onChange(this::apply);
             entity.onChange(this::apply);
             safe.onChange(this::apply);
@@ -610,6 +593,19 @@ public final class Combat {
 
         private double entityValue() {
             return safe.on() ? Math.min(entity.get(), 3.35) : entity.get();
+        }
+
+        /** What the game will actually let a hit reach right now, so bots never stop short of it. */
+        public static double entityRange() {
+            Reach r = instance;
+            double slider = r != null && r.enabled() ? r.entityValue() : 3.0;
+            // The oracle measured what this server refuses: never hand out more than that.
+            return Oracle.limitReach(slider);
+        }
+
+        public static double blockRange() {
+            Reach r = instance;
+            return r != null && r.enabled() ? r.blockValue() : 4.5;
         }
 
         private void apply() {

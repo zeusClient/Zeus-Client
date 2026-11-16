@@ -19,9 +19,19 @@ dependencies {
 
 processResources {
     def modVersion = project.version
+    // the GitHub build number, so the client can tell when a newer build is out (0 = local build)
+    def buildNumber = project.findProperty("zeus_build") ?: "0"
     inputs.property "version", modVersion
+    inputs.property "build", buildNumber
     filesMatching("fabric.mod.json") {
         expand "version": modVersion
+    }
+    // the news as it was when this build was made: the menu shows it until the online copy arrives
+    from(rootProject.file("NEWS.md")) {
+        into "assets/zeus"
+    }
+    filesMatching("assets/zeus/build.properties") {
+        expand "build": buildNumber
     }
 }
 
@@ -34,4 +44,20 @@ tasks.withType(JavaCompile).configureEach {
 java {
     sourceCompatibility = JavaVersion.VERSION_21
     targetCompatibility = JavaVersion.VERSION_21
+}
+
+// In-game screenshot test: launches the real client on a virtual display and photographs the
+// menus (run by .github/workflows/screenshots.yml). Not part of the mod jar.
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = "zeus-screens"
+        enableGameTests = false
+        enableClientGameTests = true
+    }
+}
+
+// GitHub's runners trip the test network synchroniser; the Fabric docs suggest switching it off.
+loom.runs.matching { it.name == 'clientGameTest' }.configureEach {
+    vmArg '-Dfabric.client.gametest.disableNetworkSynchronizer=true'
 }

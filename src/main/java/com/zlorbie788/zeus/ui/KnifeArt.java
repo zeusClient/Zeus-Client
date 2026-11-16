@@ -60,6 +60,7 @@ public final class KnifeArt {
         public int glow;
         public int shape;
         public int design;
+        public int finish;
         public boolean mirror;
 
         public boolean fine = true;
@@ -95,6 +96,7 @@ public final class KnifeArt {
             l.blade[1] = hsv(h, 0.5f, 0.92f);
             l.blade[2] = hsv(h, 0.7f, 0.6f);
         }
+        l.finish = Math.max(0, Math.min(FINISH_COLOURS.length - 1, finish));
         l.shape = Math.max(0, Math.min(SHAPES.length - 1, shape));
         l.design = Math.max(0, Math.min(DESIGNS.length - 1, design));
         return l;
@@ -399,12 +401,22 @@ public final class KnifeArt {
     }
 
     public static String[] finishNames(int type) {
+        if (hdType(type) >= 0) return new String[] {"Original"};
         return type == 0 ? PRESETS : type == 1 ? KPRESETS : SFINISHES;
     }
 
     private static final Rig SHOW_RIG = new Rig();
 
+    /** A knife standing still in a box: built once and reused, so grids of knives cost almost nothing. */
+    public static void still(GuiGraphics g, int type, int bx, int by, int bw, int bh) {
+        int hd = hdType(type);
+        if (hd >= 0 && KnifeHDGui.still(g, hd, bx, by, bw, bh, false)) return;
+        showcase(g, type, 0, bx, by, bw, bh, 0f, false);
+    }
+
     public static void showcase(GuiGraphics g, int type, int finish, int bx, int by, int bw, int bh, float time, boolean fine) {
+        int hd = hdType(type);
+        if (hd >= 0 && KnifeHDGui.showcase(g, hd, bx, by, bw, bh, time, fine)) return;
         Rig rig = SHOW_RIG;
         rig.clear();
         rig.alpha(1f);
@@ -439,6 +451,8 @@ public final class KnifeArt {
     public static float[] kAt(Rig.T k, int curve, float t) {
         curve = Math.max(0, Math.min(KR.length + SMODELS.length - 1, curve));
         if (curve >= KR.length) {
+            int hd = hdOf(curve);
+            if (hd >= 0) return KnifeHD.along(KnifeHD.model(hd), k, t);
             Straight m = SMODELS[curve - KR.length];
             float y0 = m.hl + (m.guard ? 0.9f : 0f);
             if (m.bend == 0f) return k.point(0f, (y0 + m.bl * t) * Q, 0f);
@@ -523,8 +537,6 @@ public final class KnifeArt {
         KLayer[] full;
         KLayer[] band;
     }
-
-    private static final KSet[][] KSETS = new KSet[KR.length + 18][4];
 
     public static int kRects(int curve, boolean fine) {
         return kSet(curve, fine ? 2 : 4, fine ? 3 : 2).full[0].rects.length / 5;
@@ -700,7 +712,7 @@ public final class KnifeArt {
     }
 
     public static final String[] SFINISHES = {"Stainless", "Blue steel", "Fade", "Slaughter", "Crimson web", "Doppler", "Case hardened", "Night",
-        "Forest", "Gamma Doppler", "Gold", "Damascus", "Rainbow"};
+        "Forest", "Gamma Doppler", "Gold", "Damascus", "Emerald", "Obsidian", "Copper", "Ruby", "Tiger", "Rainbow"};
 
     private static final int[][] SFIN = {
         {0xFF8A8F98, 0xFF4A4F58, 0xFF24272E, 0xFF0E1014, 0xFFF4F7FB, 0xFFB7C0CC, 0xFF6B7684, 0xFFE8F1FF},
@@ -715,6 +727,11 @@ public final class KnifeArt {
         {0xFFB8FFE8, 0xFF22C894, 0xFF0E5440, 0xFF04201A, 0xFFC8FFF0, 0xFF3AE0B4, 0xFF108070, 0xFF5CFFD0},
         {0xFFFFF0B8, 0xFFD2A21E, 0xFF5C4208, 0xFF241A04, 0xFFFFF6C4, 0xFFF0C23A, 0xFFA27010, 0xFFFFD45E},
         {0xFFE2C79A, 0xFF8A6A3A, 0xFF3C2A14, 0xFF18100A, 0xFFEAEAEA, 0xFF9A9AA6, 0xFF50505C, 0xFFDDDDEE},
+        {0xFF8AE0B0, 0xFF14724A, 0xFF06301E, 0xFF02140C, 0xFFC8FFE0, 0xFF2AD08A, 0xFF0A5C3A, 0xFF5CFFB0},
+        {0xFF4A4A58, 0xFF23232E, 0xFF101018, 0xFF06060A, 0xFF9A9AB8, 0xFF43435C, 0xFF14141E, 0xFF8A7CFF},
+        {0xFFE8A878, 0xFFB06432, 0xFF4A2814, 0xFF1C0E06, 0xFFFFD0A8, 0xFFD07C3C, 0xFF6E3A18, 0xFFFFA860},
+        {0xFFFFA0B0, 0xFFB01838, 0xFF4A081A, 0xFF1C0208, 0xFFFFC0CC, 0xFFE0284C, 0xFF7A0A22, 0xFFFF4A6A},
+        {0xFFF0C860, 0xFF3A2A10, 0xFF1A1206, 0xFF0A0602, 0xFFFFF0B0, 0xFFE0A020, 0xFF6A4408, 0xFFFFC03A},
     };
 
     public static Look sLook(int finish, int model, float time) {
@@ -737,6 +754,7 @@ public final class KnifeArt {
             System.arraycopy(f, 4, l.blade, 0, 3);
             l.glow = f[7];
         }
+        l.finish = finish;
         l.shape = KR.length + Math.max(0, Math.min(SMODELS.length - 1, model));
         return l;
     }
@@ -794,7 +812,111 @@ public final class KnifeArt {
         new Straight("Skeleton", 9.0f, 1.3f, 14f, w(1.1f, 1.3f, 1.4f, 1.4f, 1.3f, 1.1f, 0.9f, 0.7f, 0.45f, 0.2f, 0f), w(1.1f, 1.4f, 1.6f, 1.7f, 1.7f, 1.6f, 1.3f, 1.0f, 0.6f, 0.3f, 0f), 0f, 0f, H_SKEL, "pl"),
         new Straight("Kukri", 7.4f, 1.4f, 14f, w(1.0f, 1.1f, 1.2f, 1.4f, 1.7f, 2.1f, 2.5f, 2.6f, 2.2f, 1.3f, 0f), w(1.0f, 1.1f, 1.3f, 1.6f, 2.0f, 2.5f, 3.0f, 3.1f, 2.6f, 1.5f, 0f), -12f, 70f, H_RIBBED, "wf"),
         new Straight("Shadow Daggers", 3.4f, 0.9f, 10f, w(0.9f, 1.3f, 1.6f, 1.7f, 1.6f, 1.4f, 1.1f, 0.8f, 0.5f, 0.25f, 0f), w(0.9f, 1.3f, 1.6f, 1.7f, 1.6f, 1.4f, 1.1f, 0.8f, 0.5f, 0.25f, 0f), 0f, 0f, H_PUSH, "f"),
+        new Straight("Tantō", 7.4f, 1.35f, 13.6f, w(1.35f, 1.45f, 1.5f, 1.5f, 1.5f, 1.45f, 1.4f, 1.3f, 1.15f, 0.9f, 0.4f), w(1.4f, 1.5f, 1.55f, 1.55f, 1.55f, 1.5f, 1.45f, 1.35f, 1.2f, 0.95f, 0.45f), 0f, 0f, H_CORD, "gp"),
+        new Straight("Kris", 8f, 1.3f, 15.2f, w(1f, 1.35f, 1f, 1.4f, 1.05f, 1.5f, 1f, 1.35f, 0.9f, 1.1f, 0.3f), w(1.1f, 1.45f, 1.1f, 1.5f, 1.15f, 1.6f, 1.1f, 1.45f, 1f, 1.15f, 0.35f), 0f, 0f, H_RIBBED, "gp"),
+        new Straight("Cleaver", 7.2f, 1.5f, 12.8f, w(1.7f, 2f, 2.2f, 2.3f, 2.4f, 2.4f, 2.4f, 2.4f, 2.3f, 2.2f, 1.9f), w(1.9f, 2.2f, 2.4f, 2.5f, 2.6f, 2.6f, 2.6f, 2.6f, 2.5f, 2.4f, 2.1f), 0f, 0f, H_CORD, "p"),
+        new Straight("Kunai", 6.4f, 1f, 11.8f, w(0.9f, 1f, 1f, 0.95f, 0.9f, 0.8f, 0.7f, 0.6f, 0.45f, 0.3f, 0.1f), w(0.95f, 1.05f, 1.05f, 1f, 0.95f, 0.85f, 0.75f, 0.65f, 0.5f, 0.32f, 0.1f), 0f, 0f, H_CORD, "p"),
+        new Straight("Jambiya", 7f, 1.45f, 12.6f, w(1.5f, 1.7f, 1.8f, 1.8f, 1.7f, 1.6f, 1.4f, 1.2f, 0.9f, 0.55f, 0.15f), w(1.6f, 1.85f, 1.95f, 1.95f, 1.85f, 1.7f, 1.5f, 1.3f, 0.95f, 0.6f, 0.15f), -20f, 55f, H_RIBBED, "gp"),
+        new Straight("Khopesh", 7.8f, 1.3f, 15.4f, w(1.1f, 1.25f, 1.35f, 1.45f, 1.5f, 1.6f, 1.7f, 1.7f, 1.5f, 1f, 0.3f), w(1.2f, 1.35f, 1.45f, 1.55f, 1.6f, 1.7f, 1.8f, 1.8f, 1.6f, 1.1f, 0.3f), -26f, 78f, H_RIBBED, "h"),
+        new Straight("Machete", 8.6f, 1.35f, 16.5f, w(1.5f, 1.7f, 1.8f, 1.85f, 1.9f, 1.95f, 2f, 2f, 1.8f, 1.4f, 0.7f), w(1.6f, 1.8f, 1.9f, 1.95f, 2f, 2.05f, 2.1f, 2.1f, 1.9f, 1.5f, 0.75f), -8f, 30f, H_CORD, "p"),
+        new Straight("Dagger", 5.8f, 1f, 10.8f, w(1.1f, 1.25f, 1.3f, 1.28f, 1.2f, 1.1f, 0.95f, 0.8f, 0.6f, 0.4f, 0.12f), w(1.1f, 1.25f, 1.3f, 1.28f, 1.2f, 1.1f, 0.95f, 0.8f, 0.6f, 0.42f, 0.12f), 0f, 0f, H_SCALES, "gp"),
+
+        // the HD tactical knives (KnifeHD); these entries are their pixel fallback
+        new Straight("Tactical · Damascus", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Tactical · Slaughter", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Tactical · Case hardened", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Tactical · Fade", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Tactical · Crimson web", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Tactical · Tiger tooth", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Tactical · Sapphire", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Tactical · Urban masked", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Tactical · Emerald", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Tactical · Marble fade", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Tactical · Ruby", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Tactical · Ultraviolet", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Karambit · Bloodstone", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Karambit · Crimson web", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Karambit · Sapphire", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Karambit · Fade", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Karambit · Tiger tooth", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Karambit · Slaughter", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("M9 Bayonet · Forest camo", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("M9 Bayonet · Damascus", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("M9 Bayonet · Case hardened", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("M9 Bayonet · Ruby", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("M9 Bayonet · Night", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Butterfly · Fade", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Butterfly · Marble fade", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Butterfly · Emerald", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Butterfly · Slaughter", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Butterfly · Ultraviolet", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Huntsman · Night", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Huntsman · Urban masked", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Huntsman · Tiger tooth", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Huntsman · Case hardened", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Huntsman · Crimson web", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Bowie · Damascus", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Bowie · Slaughter", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Bowie · Fade", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Bowie · Sapphire", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Bowie · Rust coat", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Skeleton · Case hardened", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Skeleton · Fade", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Skeleton · Marble fade", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Skeleton · Emerald", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Skeleton · Night", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Ursus · Gold leaf", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Ursus · Sapphire", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Ursus · Ruby", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Ursus · Tiger tooth", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Ursus · Urban masked", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Stiletto · Fade", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Stiletto · Damascus", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Stiletto · Case hardened", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Stiletto · Night", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Stiletto · Marble fade", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Karambit · Stock", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Tactical · Lightning", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Tactical · Olympus", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Karambit · Inferno", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Karambit · Nebula", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("M9 Bayonet · Frost", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("M9 Bayonet · Phantom", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Butterfly · Toxic", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Butterfly · Sunset", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Huntsman · Thunderhead", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Huntsman · Toxic", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Bowie · Inferno", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Bowie · Olympus", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Skeleton · Abyss", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Skeleton · Phantom", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Ursus · Frost", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Ursus · Nebula", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Stiletto · Sunset", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Stiletto · Abyss", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        // the Chroma knives, traced from the picture
+        new Straight("Karambit · Galaxy", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("M9 Bayonet · Molten Core", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Bowie · Prism Shard", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Bowie · Gilded Phoenix", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Butterfly · Stardust", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps"),
+        new Straight("Kunai · Spectrum", 9.6f, 1.6f, 14.5f, w(1.6f, 1.9f, 1.9f, 1.9f, 1.9f, 1.9f, 1.8f, 1.5f, 1.0f, 0.5f, 0f), w(1.7f, 2.1f, 2.3f, 2.3f, 2.3f, 2.3f, 2.1f, 1.6f, 1.0f, 0.5f, 0f), 0f, 0f, H_RIBBED, "gps")
     };
+
+    /** How many of the last straight models are HD tactical knives drawn by KnifeHD. */
+    public static final int HD_COUNT = 78;
+
+    /** HD knife index for a knife key (KR.length + straight index), or -1. */
+    public static int hdOf(int key) {
+        int si = key - KR.length;
+        int hd = si - (SMODELS.length - HD_COUNT);
+        return si >= 0 && si < SMODELS.length && hd >= 0 && hd < KnifeHD.count() ? hd : -1;
+    }
+
+    /** HD knife index for a knife type (0 butterfly, 1 karambit, 2.. straight), or -1. */
+    public static int hdType(int type) {
+        return type >= 2 ? hdOf(KR.length + type - 2) : -1;
+    }
 
     public static String[] straightNames() {
         String[] n = new String[SMODELS.length];
@@ -804,11 +926,14 @@ public final class KnifeArt {
 
     public static float gripOf(int key) {
         if (key < KR.length) return KGRIP;
+        int hd = hdOf(key);
+        if (hd >= 0) return KnifeHD.grip(KnifeHD.model(hd));
         Straight m = SMODELS[Math.min(SMODELS.length - 1, key - KR.length)];
         return (m.style == H_PUSH ? 1.6f : m.hl * 0.5f) * Q;
     }
 
-    private static final float[][] BOUNDS = new float[KR.length + 18][];
+    private static final float[][] BOUNDS = new float[KR.length + SMODELS.length][];
+    private static final KSet[][] KSETS = new KSet[KR.length + SMODELS.length][4];
 
     private static float[] bounds(int key) {
         key = Math.max(0, Math.min(KR.length + SMODELS.length - 1, key));

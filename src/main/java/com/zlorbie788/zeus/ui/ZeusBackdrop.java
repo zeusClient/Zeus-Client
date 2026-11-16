@@ -11,7 +11,7 @@ import net.minecraft.client.gui.screens.TitleScreen;
 public final class ZeusBackdrop {
     private ZeusBackdrop() {}
 
-    private static final long BORN = System.nanoTime();
+    private static final long BORN = com.zlorbie788.zeus.core.Clock.nanoTime();
     private static boolean busy;
     private static boolean warned;
 
@@ -21,10 +21,10 @@ public final class ZeusBackdrop {
             if (!UiSettings.BACKDROP.on() || !UiSettings.MENU.on()) return false;
             Minecraft mc = Minecraft.getInstance();
             if (mc == null || mc.level != null) return false;
-            if (s instanceof TitleScreen || s instanceof ZeusTitleScreen || s instanceof ZeusCreditsScreen || s instanceof VideoIntroScreen
+            if (s instanceof TitleScreen || s instanceof ZeusTitleScreen || s instanceof VideoIntroScreen
                     || s instanceof LevelLoadingScreen || s instanceof ConnectScreen) return false;
             busy = true;
-            float t = (System.nanoTime() - BORN) / 1e9f;
+            float t = (com.zlorbie788.zeus.core.Clock.nanoTime() - BORN) / 1e9f;
             MenuAudio.backdrop = true;
             ZeusTitleScreen.scene(g, s.width, s.height, t, new long[2], true);
             g.fill(0, 0, s.width, s.height, Draw.rgba(0xFF04070F, 0.36f));

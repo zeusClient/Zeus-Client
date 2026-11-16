@@ -63,6 +63,26 @@ All commands are handled by your game and are never sent to the server.
 | `/zeus waypoint add <x> <y> <z> [name]` | Save a waypoint |
 | `/zeus website [stop\|status]` | Start or stop the local control page |
 | `/zeus tutorial`, `/zeus whatsnew` | Replay the tour or the update summary |
+| `/zeus ai <request>` | Ask Zeus AI in plain words, e.g. `/zeus ai mine 10 iron then come back` |
+| `/zeus ai tutorial` | Step-by-step AI setup: provider, key, connection test, first commands |
+| `/zeus ai test`, `/zeus ai status` | Check the AI connection, see key, model and limits |
+| `/zeus ai provider\|model\|endpoint <value>` | Switch AI provider (groq, gemini, openrouter, openai, deepseek, mistral, ollama, lmstudio) or model |
+| `/zeus ai stop\|undo\|plan` | End a job, undo the last AI change, show the last plan |
+| `/zeus ai models`, `/zeus ai again` | List the provider's models (click to pick), repeat the last request |
+| `/zeus ai schematics` | List the schematics in the instance's `schematics` folder (Litematica's) with Build and Materials buttons |
+| `/zeus ai build schematic <name>` | Gather the materials (chop, mine, craft, smelt) and build it 3 blocks in front of you; add `here` to restart at your spot |
+
+### Zeus AI
+
+Zeus AI runs on an AI provider with your own API key, or fully offline through Ollama or LM Studio. Groq and Google Gemini give free keys. Run `/zeus ai tutorial` in a world and it walks you through every step with clickable buttons. Start a normal chat message with **@** (for example `@mine 10 iron`) and it goes straight to Zeus AI, never to the server; the prefix can be changed in the settings. Press **J** to open chat with `/zeus ai ` already typed. Turn on **Chat window** in Zeus AI Functions for a small on-screen chat of your requests and its answers. The key is stored only in your local config and is shown masked in chat. Without a key, a built-in parser still handles simple commands like `on sprint` or `set killaura range to 4`.
+
+### Zeus Crates
+**Zeus Crates** on the title screen is where knives are unlocked. Everyone starts with the Stock karambit; every other knife (72 in all, nine types) comes out of one of six crates: Olympus, Tempest, Hades, Nyx, Poseidon and Titan. Each knife has a rarity: Mortal 60%, Heroic 25%, Divine 10%, Titan 4%, Olympian 1%.
+
+- Opening a crate needs a key. Keys cost 30 Zeus tokens; you earn 1 token for every 5 minutes of active play (standing still earns nothing).
+- A free random crate drops every 90 minutes of play.
+- A knife you already own gives tokens back instead, more for rarer drops.
+- Promo codes (Redeem tab) unlock free crates with their keys. Each code works once per player.
 
 ### Control page
 

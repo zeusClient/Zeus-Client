@@ -41,6 +41,22 @@ public final class ArmArt {
         };
     }
 
+    /** A dark leather glove over the hand end of the arm, with a lighter cuff band and stitching. */
+    public static Rig.Painter glove(Skin s) {
+        return (g, c, face, w, h) -> {
+            g.fill(0, 0, w, h, c.col(0xFF24201E));
+            int cuff = Math.max(1, Math.round(h * 0.28f));
+            if (face != 2 && face != 3) {
+                g.fill(0, h - cuff, w, h, c.col(0xFF3A322C));
+                g.fill(0, h - cuff, w, h - cuff + 1, c.raw(0xFFFFFFFF, 0.10f));
+                for (int x = 1; x < w; x += 3) g.fill(x, h - cuff - 2, x + 1, h - cuff - 1, c.raw(0xFFB8A48C, 0.35f));
+                g.fill(0, 0, w, 1, c.raw(0xFFFFFFFF, 0.12f));
+            }
+            g.fill(0, 0, 1, h, c.raw(0xFF000000, 0.18f));
+            glow(g, c, s, w, h);
+        };
+    }
+
     private static int[] region(int face, boolean slim) {
         return switch (face) {
             case 5 -> new int[] {44, 20, slim ? 3 : 4, 12};
@@ -94,24 +110,6 @@ public final class ArmArt {
         int a = (s.glow >>> 24) & 255;
         if (a < 4) return;
         g.fill(0, 0, w, h, c.raw(s.glow & 0x00FFFFFF | 0xFF000000, a / 255f));
-    }
-
-    public static Rig.Painter finger(Skin s) {
-        return (g, c, face, w, h) -> {
-            if (s.texture != null) {
-                int[] r = region(2, s.slim);
-                tex(g, c, s, r, w, h, 0);
-                if (face != 4 && face != 5) g.fill(0, 0, w, h, c.raw(0xFF000000, 0.10f));
-            } else {
-                int[] p = PALETTES[Math.max(0, Math.min(PALETTES.length - 1, s.look))];
-                g.fill(0, 0, w, h, c.col(p[1]));
-                g.fill(1, 1, w - 1, h - 1, c.col(Draw.mix(p[0], p[1], 0.22f)));
-            }
-            g.fill(0, 0, w, 1, c.raw(0xFFFFFFFF, 0.14f));
-            g.fill(0, h - 1, w, h, c.raw(0xFF000000, 0.30f));
-            g.fill(0, 0, 1, h, c.raw(0xFF000000, 0.14f));
-            glow(g, c, s, w, h);
-        };
     }
 
     public static Skin skin(net.minecraft.client.player.AbstractClientPlayer player, int look, int glow) {

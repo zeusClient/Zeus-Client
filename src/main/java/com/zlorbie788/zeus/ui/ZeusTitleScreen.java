@@ -22,29 +22,33 @@ public final class ZeusTitleScreen extends Screen {
     private static final float MH = 768f;
     private static final float PLATE_X = 490f;
     private static final float PLATE_W = 382f;
-    private static final float PLATE_H = 54f;
-    private static final float[] PLATE_Y = {351f, 414f, 476f, 539f, 602f, 665f};
+    private static final float PLATE_H = 48f;
+    // six plates with room between them (Realms moved to the round buttons)
+    private static final float[] PLATE_Y = {304f, 371.6f, 439.2f, 506.8f, 574.4f, 642f};
 
-    private static final float LOGO_X = 500f;
-    private static final float LOGO_Y = 14f;
-    private static final float LOGO_W = 368f;
-    private static final float LOGO_H = 332f;
-    private static final float MEDAL_CX = 678f;
-    private static final float MEDAL_CY = 145f;
-    private static final float MEDAL_R = 123f;
+    // the logo is 85% of its old size so seven buttons fit above the version line
+    private static final float LOGO_X = 527.6f;
+    private static final float LOGO_Y = 12f;
+    private static final float LOGO_W = 312.8f;
+    private static final float LOGO_H = 282.2f;
+    private static final float MEDAL_CX = 678.9f;
+    private static final float MEDAL_CY = 123.4f;
+    private static final float MEDAL_R = 104.6f;
 
-    private static final float[][] ICON = {{74.5f, 714f}, {165.5f, 714f}, {256.5f, 714f}, {347.5f, 714f}, {438.5f, 714f}};
+    private static final float[][] ICON = {{62f, 716f}, {136f, 716f}, {210f, 716f}, {284f, 716f}, {358f, 716f}, {432f, 716f}};
 
     private static final String DISCORD = "https://discord.gg/znrj2TfCP8";
-    private static final float ICON_R = 34f;
-    private static final float ICON_PIC = 37f;
-    private static final String[] NAMES = {"singleplayer", "multiplayer", "customs", "settings", "realms", "exit"};
-    private static final String[] ICON_NAMES = {"language", "accessibility", "settings", "credits", "discord"};
+    private static final float ICON_R = 30f;
+    private static final float ICON_PIC = 32.6f;
+    private static final String[] NAMES = {"singleplayer", "multiplayer", "customs", "crates", "settings", "exit"};
+    /** The Zeus Crates plate glows gold even when idle, so it is found. */
+    private static final int CRATES = 3;
+    private static final String[] ICON_NAMES = {"language", "accessibility", "settings", "realms", "info", "discord"};
 
-    private static final int[] ICON_FRAMES = {24, 24, 0, 12, 0};
+    private static final int[] ICON_FRAMES = {24, 24, 0, 0, 12, 0};
     private static final float CLICK_LENGTH = 0.34f;
     private static final float CLICK_GO = 0.25f;
-    private static final String[] ICON_TIPS = {"Language", "Accessibility", "Zeus Settings", "Credits", "Join the Discord"};
+    private static final String[] ICON_TIPS = {"Language", "Accessibility", "Zeus Settings", "Realms", "About Zeus", "Join the Discord"};
 
     private static final int PIC_W = 1920;
     private static final int PIC_H = 1080;
@@ -55,30 +59,32 @@ public final class ZeusTitleScreen extends Screen {
     private static final int CLOUD_H = 890;
     private static final int MIST_H = 420;
 
-    private final long born = System.nanoTime();
-    private final float[] glow = new float[6];
-    private final float[] iconGlow = new float[5];
-    private final float[] plateSpring = new float[6];
-    private final float[] plateVel = new float[6];
-    private final float[] plateMag = new float[6];
-    private final float[] enterAt = new float[6];
-    private final float[] enterX = new float[6];
-    private final boolean[] platePrev = new boolean[6];
-    private final float[] iconSpring = new float[5];
-    private final float[] iconVel = new float[5];
-    private final float[] iconEnter = new float[5];
-    private final boolean[] iconPrev = new boolean[5];
+    private final long born = com.zlorbie788.zeus.core.Clock.nanoTime();
+    private final float[] glow = new float[7];
+    private final float[] iconGlow = new float[6];
+    private final float[] plateSpring = new float[7];
+    private final float[] plateVel = new float[7];
+    private final float[] plateMag = new float[7];
+    private final float[] enterAt = new float[7];
+    private final float[] enterX = new float[7];
+    private final boolean[] platePrev = new boolean[7];
+    private final float[] iconSpring = new float[6];
+    private final float[] iconVel = new float[6];
+    private final float[] iconEnter = new float[6];
+    private final boolean[] iconPrev = new boolean[6];
     private final int[] shineBand = new int[2];
     private int soundPlate = -1;
     private int soundIcon = -1;
-    private final float[] iconPhase = new float[4];
+    private final float[] iconPhase = new float[6];
 
     private int clickKind = -1;
     private int clickIdx = -1;
     private long clickAt;
-    private final float[] clickBox = new float[6];
+    private final float[] clickBox = new float[7];
     private final MenuNews news = new MenuNews();
 
+    private int[] contBox;
+    private int[] updBox;
     private int selected = -1;
     private boolean selectedByMouse;
 
@@ -102,6 +108,7 @@ public final class ZeusTitleScreen extends Screen {
 
     @Override
     protected void init() {
+        MenuOnline.start();
         warm();
     }
 
@@ -114,7 +121,7 @@ public final class ZeusTitleScreen extends Screen {
             MenuStorm.warm(width, height, c[0], gs, canvasPx(c[0], gs, CLOUD_W));
             MenuSnow.warm(height, gs);
             int ipw = Math.min(222, Math.round(2 * ICON_PIC * u * gs));
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < ICON_NAMES.length; i++) {
                 if (ICON_FRAMES[i] > 0) Tex.fitted("menu_anim_" + ICON_NAMES[i], "textures/gui/menu/icon_anim_" + ICON_NAMES[i] + ".png", ipw * ICON_FRAMES[i], ipw, false, 0, 0);
             }
             Tex.fitted("menu_logo", "textures/gui/menu/logo.png", Math.round(LOGO_W * u * gs), Math.round(LOGO_H * u * gs), false, 0, 0);
@@ -143,7 +150,7 @@ public final class ZeusTitleScreen extends Screen {
     }
 
     private float time() {
-        return (System.nanoTime() - born) / 1e9f;
+        return (com.zlorbie788.zeus.core.Clock.nanoTime() - born) / 1e9f;
     }
 
     private float u() {
@@ -195,7 +202,7 @@ public final class ZeusTitleScreen extends Screen {
     }
 
     private int plateAt(int mx, int my) {
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < NAMES.length; i++) {
             if (mx >= plateX() && mx < plateX() + plateW() && my >= plateY(i) && my < plateY(i) + plateH()) return i;
         }
         return -1;
@@ -362,6 +369,7 @@ public final class ZeusTitleScreen extends Screen {
                 int iy = Math.round(back[2] + sy * cs);
                 g.fill(ix, iy, ix + 1, iy + 1, Draw.rgba(0xFFC8DCFF, (0.10f + 0.55f * tw * tw) * (1f - Math.min(1f, lv * 1.15f))));
             }
+            if (menu) MenuExtras.shootingStars(g, back, t, lv);
         }
         if (moonCover > 0.02f) {
             float c = moonCover * moonCover * (3f - 2f * moonCover);
@@ -573,7 +581,7 @@ public final class ZeusTitleScreen extends Screen {
     }
 
     static float strike(GuiGraphics g, int width, int height, float t, long[] state) {
-        long now = System.nanoTime();
+        long now = com.zlorbie788.zeus.core.Clock.nanoTime();
         if (state[0] == 0) state[0] = now + (long) (3.5e9 + 3e9 * Lightning.hash((int) (now >> 20), 9));
         float since = (now - state[0]) / 1e9f;
         if (since < 0f) return 0f;
@@ -593,7 +601,7 @@ public final class ZeusTitleScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        long now = System.nanoTime();
+        long now = com.zlorbie788.zeus.core.Clock.nanoTime();
         float dt = lastNanos == 0 ? 0.016f : Math.min(0.05f, (now - lastNanos) / 1e9f);
         lastNanos = now;
         float t = time();
@@ -638,7 +646,7 @@ public final class ZeusTitleScreen extends Screen {
         int w = plateW();
         int h = plateH();
         Tex.Img plate = Tex.fitted("menu_plate", "textures/gui/menu/plate.png", w * gs, h * gs, false, 0, 0);
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < NAMES.length; i++) {
             float want = i == selected ? 1f : 0f;
             float hoverBlend = 1f - (float) Math.exp(-dt * 12.5f);
             glow[i] += (want - glow[i]) * hoverBlend;
@@ -682,6 +690,20 @@ public final class ZeusTitleScreen extends Screen {
                 }
                 HoverFx.ripple(g, x, y, w, h, enterX[i], since / 0.7f, u, ease);
             }
+            if (i == CRATES && fx && gl < 0.5f && com.zlorbie788.zeus.core.Crates.heldTotal() > 0) {
+                // crates are waiting: a soft silver sweep runs across now and then
+                float cyc = (t % 6f) / 0.9f;
+                if (cyc < 1f && HoverFx.shine(g, x, y, w, h, cyc, u, ease * 0.5f, shineBand) && ink != null) {
+                    g.enableScissor(Math.max(x, shineBand[0]), y, Math.min(x + w, shineBand[1]), y + h);
+                    ink.draw(g, x, y, w, h, Draw.rgba(0xFFFFFFFF, 0.6f * ease));
+                    g.disableScissor();
+                }
+            }
+            if (i == CRATES) {
+                int waiting = com.zlorbie788.zeus.core.Crates.heldTotal();
+                if (waiting > 0) MenuExtras.crateCount(g, x + w, y, h, waiting, ease, t);
+            }
+            if (fx) MenuExtras.chevrons(g, x, y, w, h, gl * ease, u, 0xFFA8BEEA);
             if (gl > 0.02f) Draw.rrectLine(g, x, y, w, h, 3, Draw.rgba(0xFFA8BEEA, (0.68f + 0.10f * (float) Math.sin(t * 4f)) * gl * ease));
             if (gl > 0.02f && fx) {
                 PlateFx.hover(g, x, y, w, h, t, gl * ease, u);
@@ -732,17 +754,17 @@ public final class ZeusTitleScreen extends Screen {
             news.draw(g, mouseX, mouseY, dt, 1f - (1f - na) * (1f - na), t);
         }
 
-        String name = minecraft.getUser().getName().toUpperCase(java.util.Locale.ROOT);
-        String line = "VERSION " + ZeusMenu.MENU_VERSION + " - " + name + " ONLINE";
-        Draw.textCenter(g, line, width / 2, height - 11, 0x99B4C0D8);
         String back = "Classic menu";
         boolean hotB = inClassic(mouseX, mouseY);
-        Draw.textCenter(g, back, width / 2, height - 23, hotB ? 0xFFFFFFFF : 0x99B4C0D8);
+        Draw.textCenter(g, back, width / 2, height - 13, hotB ? 0xFFFFFFFF : 0x99B4C0D8);
 
         MenuClock.draw(g, width, height, u, Math.max(0f, Math.min(1f, (t - 0.6f) / 0.6f)));
+        if (!UiSettings.CALM.on()) MenuExtras.splash(g, ux(LOGO_X + LOGO_W * 1.06f) + Draw.widthBold(MenuExtras.splashRaw()) * Math.max(0.7f, Math.min(1.6f, u * 2.4f)) * 0.42f, uy(LOGO_Y + LOGO_H * 0.74f), u, t);
+        contBox = MenuExtras.continueCard(g, plateX() - Math.round(12 * u), plateY(0), plateY(1) + plateH() - plateY(0), u, mouseX, mouseY, t, dt);
+        updBox = MenuExtras.updatePill(g, mouseX, mouseY, t, dt);
 
         if (clickIdx >= 0) {
-            float cp = (System.nanoTime() - clickAt) / 1e9f / CLICK_LENGTH;
+            float cp = (com.zlorbie788.zeus.core.Clock.nanoTime() - clickAt) / 1e9f / CLICK_LENGTH;
             PlateFx.click(g, clickBox[0], clickBox[1], Math.round(clickBox[2]), Math.round(clickBox[3]), Math.round(clickBox[4]), Math.round(clickBox[5]), u, cp, width, height, clickIdx * 7 + clickKind * 3 + 1);
         }
 
@@ -752,7 +774,7 @@ public final class ZeusTitleScreen extends Screen {
 
     private boolean inClassic(int mx, int my) {
         int cw = Draw.width("Classic menu") + 10;
-        return mx >= width / 2 - cw / 2 && mx < width / 2 + cw / 2 && my >= height - 25 && my < height - 13;
+        return mx >= width / 2 - cw / 2 && mx < width / 2 + cw / 2 && my >= height - 15 && my < height - 3;
     }
 
     private void drawLogo(GuiGraphics g, float u, float t, int gs) {
@@ -766,7 +788,7 @@ public final class ZeusTitleScreen extends Screen {
         int ly = uy(LOGO_Y) + Math.round((1f - appear) * (1f - appear) * 8f * u);
         float cx = lx + (MEDAL_CX - LOGO_X) * u;
         float cy = ly + (MEDAL_CY - LOGO_Y) * u;
-        long nowNs = System.nanoTime();
+        long nowNs = com.zlorbie788.zeus.core.Clock.nanoTime();
         float ldt = logoHotAt == 0 ? 0f : Math.min(0.1f, (nowNs - logoHotAt) / 1e9f);
         logoHotAt = nowNs;
         boolean over = inLogo(curX, curY) && clickIdx < 0;
@@ -868,7 +890,7 @@ public final class ZeusTitleScreen extends Screen {
         }
         clickKind = kind;
         clickIdx = i;
-        clickAt = System.nanoTime();
+        clickAt = com.zlorbie788.zeus.core.Clock.nanoTime();
         float u = u();
         if (kind == 0) {
             int w = plateW();
@@ -908,7 +930,7 @@ public final class ZeusTitleScreen extends Screen {
 
     @Override
     public void tick() {
-        if (clickIdx >= 0 && (System.nanoTime() - clickAt) / 1e9f >= CLICK_GO) {
+        if (clickIdx >= 0 && (com.zlorbie788.zeus.core.Clock.nanoTime() - clickAt) / 1e9f >= CLICK_GO) {
             int kind = clickKind;
             int i = clickIdx;
             clickIdx = -1;
@@ -924,8 +946,8 @@ public final class ZeusTitleScreen extends Screen {
                 case 0 -> minecraft.setScreen(new SelectWorldScreen(this));
                 case 1 -> minecraft.setScreen(new JoinMultiplayerScreen(this));
                 case 2 -> minecraft.setScreen(new ZeusScreen(this));
-                case 3 -> minecraft.setScreen(new OptionsScreen(this, minecraft.options));
-                case 4 -> minecraft.setScreen(new RealmsMainScreen(this));
+                case 3 -> minecraft.setScreen(new CratesScreen(this));
+                case 4 -> minecraft.setScreen(new OptionsScreen(this, minecraft.options));
                 default -> minecraft.stop();
             }
         } catch (RuntimeException e) {
@@ -939,11 +961,14 @@ public final class ZeusTitleScreen extends Screen {
                 case 0 -> minecraft.setScreen(new LanguageSelectScreen(this, minecraft.options, minecraft.getLanguageManager()));
                 case 1 -> minecraft.setScreen(new AccessibilityOptionsScreen(this, minecraft.options));
                 case 2 -> minecraft.setScreen(new ZeusScreen(this));
-                case 4 -> {
+                case 3 -> minecraft.setScreen(new RealmsMainScreen(this));
+                case 4 -> minecraft.setScreen(new ZeusAboutScreen(this));
+                case 5 -> {
                     net.minecraft.util.Util.getPlatform().openUri(DISCORD);
                     Zeus.toast("Opening Discord", true);
                 }
-                default -> minecraft.setScreen(new ZeusCreditsScreen(this));
+                default -> {
+                }
             }
         } catch (RuntimeException e) {
             Zeus.LOG.warn("Round button {} failed", ICON_NAMES[i], e);
@@ -953,6 +978,17 @@ public final class ZeusTitleScreen extends Screen {
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (event.button() == 0) {
+            int ex = (int) event.x(), ey = (int) event.y();
+            if (contBox != null && ex >= contBox[0] && ex < contBox[0] + contBox[2] && ey >= contBox[1] && ey < contBox[1] + contBox[3]) {
+                play();
+                LastPlayed.resume(minecraft, this);
+                return true;
+            }
+            if (updBox != null && ex >= updBox[0] && ex < updBox[0] + updBox[2] && ey >= updBox[1] && ey < updBox[1] + updBox[3]) {
+                play();
+                net.minecraft.util.Util.getPlatform().openUri(MenuOnline.RELEASES_PAGE);
+                return true;
+            }
             if (news.click(event.x(), event.y())) {
                 play();
                 return true;
@@ -992,12 +1028,12 @@ public final class ZeusTitleScreen extends Screen {
         int key = event.key();
         if (key == GLFW.GLFW_KEY_DOWN || key == GLFW.GLFW_KEY_TAB) {
             selectedByMouse = false;
-            selected = (selected + 1) % 6;
+            selected = (selected + 1) % NAMES.length;
             return true;
         }
         if (key == GLFW.GLFW_KEY_UP) {
             selectedByMouse = false;
-            selected = selected < 0 ? 5 : (selected + 5) % 6;
+            selected = selected < 0 ? NAMES.length - 1 : (selected + NAMES.length - 1) % NAMES.length;
             return true;
         }
         if (key == GLFW.GLFW_KEY_ENTER || key == GLFW.GLFW_KEY_KP_ENTER || key == GLFW.GLFW_KEY_SPACE) {

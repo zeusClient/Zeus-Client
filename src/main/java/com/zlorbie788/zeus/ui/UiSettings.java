@@ -22,9 +22,9 @@ public final class UiSettings {
 
     public static final Setting.Bool REDUCE_MOTION = Zeus.UI.add(new Setting.Bool("Reduce motion", "Stops pop-ups sliding and fading. Useful when movement on screen is distracting.", false));
 
-    public static final Setting.Bool HUD_BRACKETS = Zeus.UI.add(new Setting.Bool("HUD brackets", "Small accent brackets on the corners of every HUD box.", true));
+    public static final Setting.Bool HUD_BRACKETS = Zeus.UI.add(new Setting.Bool("HUD brackets", "Small accent brackets on the corners of every HUD box.", false)).resetOnRev();
 
-    public static final Setting.Bool HUD_SHEEN = Zeus.UI.add(new Setting.Bool("HUD sheen", "A slow light sweep across the title bar of every HUD box.", true));
+    public static final Setting.Bool HUD_SHEEN = Zeus.UI.add(new Setting.Bool("HUD sheen", "A slow light sweep across the title bar of every HUD box.", false)).resetOnRev();
 
     public static final Setting.Choice LAYOUT = Zeus.UI.add(new Setting.Choice("Layout", "Panel: one window with a sidebar. Windows: a floating, draggable window for every category.", 1,
 
@@ -44,11 +44,17 @@ public final class UiSettings {
 
             "Video", "Video once", "Lightning", "Quick", "Off"));
 
+    /** Set once the old Z menu key has been moved to Right Shift, so a later choice of Z is respected. */
+    public static final Setting.Bool MENU_KEY_MOVED = Zeus.UI.add(new Setting.Bool("Menu key moved", "Internal: the old Z menu key was moved to Right Shift once.", false)).showIf(() -> false);
+    public static final Setting.Action MENU_KEY = Zeus.UI.add(new Setting.Action("Zeus menu key",
+            "The key that opens the Zeus menu in a world. Click, then press the key you want. Right Shift by default.",
+            () -> net.minecraft.client.Minecraft.getInstance().setScreen(KeybindScreen.forMenuKey(net.minecraft.client.Minecraft.getInstance().screen)))
+            .primary(() -> com.zlorbie788.zeus.client.ZeusClient.menuKeyName() + "  \u00b7  click to change"));
     public static final Setting.Bool MENU = Zeus.UI.add(new Setting.Bool("Zeus main menu", "Replaces the game's title screen with the Zeus menu. The Classic menu link in the corner turns it off.", true));
 
     public static final Setting.Bool INTRO_SOUND = Zeus.UI.add(new Setting.Bool("Intro film sound", "Plays the sound of the intro films. Switch it off to watch them in silence.", true));
 
-    public static final Setting.Bool STARTUP_VIDEO = Zeus.UI.add(new Setting.Bool("Intro film at start-up", "Plays the Zeus intro film once when the game has finished loading.", true));
+    public static final Setting.Bool STARTUP_VIDEO = Zeus.UI.add(new Setting.Bool("Intro film at start-up", "Plays the Zeus intro film when the game has finished loading, on the first launch of each day.", true));
 
     public static final Setting.Choice INTRO_FIT = Zeus.UI.add(new Setting.Choice("Intro film shape", "Stretch (the default): fills the window exactly, whatever its size. Fit: the whole picture, nothing cut, with the lightning carried on across the rest of the screen. Fill: crops the top and bottom to cover the window. ", 2,
 
@@ -88,13 +94,13 @@ public final class UiSettings {
 
     public static final Setting.Bool LOADING = Zeus.UI.add(new Setting.Bool("Zeus loading screens", "Replaces the game's Mojang start screen and its bar with the Zeus ring and the real percent while the game starts, shows the same ring with the real percent while a singleplayer world loads, and the menu background with the logo while you join a server.", true));
 
-    public static final Setting.Num HUD_OPACITY = Zeus.UI.add(new Setting.Num("HUD panel opacity", "How solid the boxes of the Panels page are (Info, Armor, Potion, Keystrokes, Radar...). 0% shows only the text.", 69, 0, 100, 1, "%"));
+    public static final Setting.Num HUD_OPACITY = Zeus.UI.add(new Setting.Num("HUD panel opacity", "How solid the boxes of the Panels page are (Info, Armor, Potion, Keystrokes, Radar...). 0% shows only the text.", 78, 0, 100, 1, "%")).resetOnRev();
 
-    public static final Setting.Num HUD_ROUND = Zeus.UI.add(new Setting.Num("HUD corner roundness", "How round the corners of those boxes are.", 4, 0, 10, 1, " px"));
+    public static final Setting.Num HUD_ROUND = Zeus.UI.add(new Setting.Num("HUD corner roundness", "How round the corners of those boxes are.", 7, 0, 10, 1, " px")).resetOnRev();
 
-    public static final Setting.Bool HUD_STRIPE = Zeus.UI.add(new Setting.Bool("HUD accent stripe", "The coloured bar on the left edge of the boxes.", true));
+    public static final Setting.Bool HUD_STRIPE = Zeus.UI.add(new Setting.Bool("HUD accent stripe", "The coloured bar on the left edge of the boxes.", false)).resetOnRev();
 
-    public static final Setting.Choice PERFORMANCE = Zeus.UI.add(new Setting.Choice("Effects quality", "Auto: the thunder, sway and slide-ins are drawn lighter when your frame rate drops below 40 and come back above 55. Quality: always full. Fast: always light (best for weak computers).", 0,
+    public static final Setting.Choice PERFORMANCE = Zeus.UI.add(new Setting.Choice("Effects quality", "Auto: the thunder, sway and slide-ins are drawn lighter when your frame rate drops below 30 and come back above 45. Quality: always full. Fast: always light (best for weak computers).", 0,
 
             "Auto", "Quality", "Fast"));
 
@@ -102,7 +108,7 @@ public final class UiSettings {
 
             "Balanced", "Light", "Minimal"));
 
-    public static final Setting.Bool AUTO_LIGHTEN = Zeus.UI.add(new Setting.Bool("Lighten automatically when the game lags", "When your frame rate falls below 45 Zeus steps up to at least Light, and below 30 to Minimal. It steps back down once the frame rate is healthy again.", true));
+    public static final Setting.Bool AUTO_LIGHTEN = Zeus.UI.add(new Setting.Bool("Lighten automatically when the game lags", "When your frame rate falls below 30 Zeus steps up to at least Light, and below 20 to Minimal. It steps back down once the frame rate is healthy again.", true));
 
     public static final Setting.Bool SHOW_COST = Zeus.UI.add(new Setting.Bool("Show what each module costs", "Measures how much of your frame time each switched-on module uses and shows it as a small percentage next to the module in the menu windows (green is small, red is a lot). The measuring itself is a few clock reads a frame. Switch it off for none.", true));
 
@@ -132,7 +138,7 @@ public final class UiSettings {
 
     }));
 
-    public static final Setting.Action PLAY_PANEL = Zeus.UI.add(new Setting.Action("Play panel intro", "Shows the five second film that plays when you press Z.", () -> {
+    public static final Setting.Action PLAY_PANEL = Zeus.UI.add(new Setting.Action("Play panel intro", "Shows the five second film that plays when you open the Zeus menu.", () -> {
 
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
 

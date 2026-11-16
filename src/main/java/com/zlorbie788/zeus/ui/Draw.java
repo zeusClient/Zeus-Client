@@ -44,7 +44,9 @@ public final class Draw {
     public static void rrect(GuiGraphics g, int x, int y, int w, int h, int r, int top, int bottom) {
         if (w <= 0 || h <= 0) return;
         r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
-        if (cheap) {
+        // light mode used to square the corners to save draw calls; a rounded box is now one textured
+        // piece, so it keeps its corners and only falls back when the shape textures are unavailable
+        if (cheap && !Shapes.ok()) {
             r = Math.min(r, 1);
             if (top != bottom) top = bottom = mix(top, bottom, 0.5f);
         }
@@ -52,6 +54,7 @@ public final class Draw {
             g.fill(x, y, x + w, y + h, top);
             return;
         }
+        if (r >= 2 && Shapes.rrect(g, x, y, w, h, r, top, bottom)) return;
         if (top == bottom) {
             g.fill(x, y + r, x + w, y + h - r, top);
             for (int i = 0; i < r; i++) {
@@ -113,7 +116,8 @@ public final class Draw {
     public static void rrectLine(GuiGraphics g, int x, int y, int w, int h, int r, int color) {
         if (w < 2 || h < 2) return;
         r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
-        if (cheap) r = Math.min(r, 1);
+        if (cheap && !Shapes.ok()) r = Math.min(r, 1);
+        if (r >= 2 && Shapes.outline(g, x, y, w, h, r, color)) return;
         g.fill(x + r, y, x + w - r, y + 1, color);
         g.fill(x + r, y + h - 1, x + w - r, y + h, color);
         g.fill(x, y + r, x + 1, y + h - r, color);
@@ -128,12 +132,78 @@ public final class Draw {
         }
     }
 
+    /**
+     * A soft light round a box. Drawn as nine pieces of one small falloff texture (corners from its
+     * quarters, edges stretched from its middle row and column) instead of one rounded rectangle per
+     * pixel of spread, which cost thousands of fills a frame for a wide glow. The brightness matches
+     * the old layered glow: a stack of k*k layers adds up to about spread/3 of the strength at the
+     * edge and falls off as the cube of the distance.
+     */
     public static void glow(GuiGraphics g, int x, int y, int w, int h, int r, int color, int spread, float strength) {
-        if (cheap) return;
-        for (int i = spread; i >= 1; i--) {
-            float k = (1f - i / (float) (spread + 1));
-            rrect(g, x - i, y - i, w + 2 * i, h + 2 * i, r + i, rgba(color, strength * k * k));
+        if (cheap || spread <= 0 || strength <= 0f || w <= 0 || h <= 0) return;
+        float peak = Math.min(1f, strength * spread / 3f);
+        int tint = rgba(color, peak * ((color >>> 24) / 255f));
+        Tex.Img t = glowTex();
+        if (t == null) {
+            for (int i = Math.min(spread, 6); i >= 1; i--) {
+                float k = (1f - i / 7f);
+                rrect(g, x - i, y - i, w + 2 * i, h + 2 * i, r + i, rgba(color, strength * k * k));
+            }
+            return;
         }
+        int s = spread, q = GLOW_Q;
+        g.fill(x, y, x + w, y + h, tint);
+        t.drawPart(g, x - s, y - s, s, s, 0, 0, q, q, tint);
+        t.drawPart(g, x + w, y - s, s, s, q, 0, q, q, tint);
+        t.drawPart(g, x - s, y + h, s, s, 0, q, q, q, tint);
+        t.drawPart(g, x + w, y + h, s, s, q, q, q, q, tint);
+        t.drawPart(g, x, y - s, w, s, q - 1, 0, 1, q, tint);
+        t.drawPart(g, x, y + h, w, s, q - 1, q, 1, q, tint);
+        t.drawPart(g, x - s, y, s, h, 0, q - 1, q, 1, tint);
+        t.drawPart(g, x + w, y, s, h, q, q - 1, q, 1, tint);
+    }
+
+    private static final int GLOW_Q = 48;
+    private static Tex.Img glowImg;
+    private static boolean glowFailed;
+
+    private static Tex.Img glowTex() {
+        if (glowImg != null || glowFailed) return glowImg;
+        try {
+            int n = GLOW_Q * 2;
+            int[] px = new int[n * n];
+            for (int yy = 0; yy < n; yy++) {
+                for (int xx = 0; xx < n; xx++) {
+                    float dx = Math.abs(xx + 0.5f - GLOW_Q) - 0.5f, dy = Math.abs(yy + 0.5f - GLOW_Q) - 0.5f;
+                    float d = (float) Math.sqrt(Math.max(0f, dx) * Math.max(0f, dx) + Math.max(0f, dy) * Math.max(0f, dy)) / GLOW_Q;
+                    float a = d >= 1f ? 0f : (1f - d) * (1f - d) * (1f - d);
+                    px[yy * n + xx] = (Math.round(a * 255f) << 24) | 0xFFFFFF;
+                }
+            }
+            glowImg = Tex.made("zeus_soft_glow", px, n, n);
+        } catch (RuntimeException | LinkageError e) {
+            glowFailed = true;
+        }
+        return glowImg;
+    }
+
+    private static final int SHEEN_N = 64;
+    private static Tex.Img sheenImg;
+    private static boolean sheenFailed;
+
+    private static Tex.Img sheenTex() {
+        if (sheenImg != null || sheenFailed) return sheenImg;
+        try {
+            int[] px = new int[SHEEN_N];
+            for (int i = 0; i < SHEEN_N; i++) {
+                float k = 1f - Math.abs((i + 0.5f) / SHEEN_N - 0.5f) * 2f;
+                px[i] = (Math.round(k * k * 255f) << 24) | 0xFFFFFF;
+            }
+            sheenImg = Tex.madeSmooth("zeus_sheen", px, SHEEN_N, 1);
+        } catch (RuntimeException | LinkageError e) {
+            sheenFailed = true;
+        }
+        return sheenImg;
     }
 
     public static void sheen(GuiGraphics g, int x, int y, int w, int h, int color, float phase) {
@@ -142,6 +212,16 @@ public final class Draw {
         int travel = w + band * 2;
         float wrapped = ((phase % 1f) + 1f) % 1f;
         int start = x - band + Math.round(wrapped * travel);
+        Tex.Img tex = sheenTex();
+        if (tex != null) {
+            // one stretched strip instead of a fill per pixel column
+            int a0 = Math.max(x, start), a1 = Math.min(x + w, start + band);
+            if (a1 <= a0) return;
+            int s0 = Math.round((a0 - start) * (float) SHEEN_N / band);
+            int s1 = Math.max(s0 + 1, Math.round((a1 - start) * (float) SHEEN_N / band));
+            tex.drawPart(g, a0, y, a1 - a0, h, s0, 0, Math.min(SHEEN_N, s1) - s0, 1, rgba(color, 0.18f));
+            return;
+        }
         for (int i = 0; i < band; i++) {
             int px = start + i;
             if (px < x || px >= x + w) continue;
@@ -164,7 +244,7 @@ public final class Draw {
     }
 
     public static float sweep(long periodMs) {
-        return (System.currentTimeMillis() % Math.max(1L, periodMs)) / (float) Math.max(1L, periodMs);
+        return (com.zlorbie788.zeus.core.Clock.millis() % Math.max(1L, periodMs)) / (float) Math.max(1L, periodMs);
     }
 
     public static void shadow(GuiGraphics g, int x, int y, int w, int h, int r, int spread, float strength) {

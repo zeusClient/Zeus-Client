@@ -6,6 +6,8 @@ import com.zlorbie788.zeus.core.Zeus;
 import com.zlorbie788.zeus.ui.ArmArt;
 import com.zlorbie788.zeus.ui.Draw;
 import com.zlorbie788.zeus.ui.KnifeArt;
+import com.zlorbie788.zeus.ui.KnifeHD;
+import com.zlorbie788.zeus.ui.KnifeHDGui;
 import com.zlorbie788.zeus.ui.KnifeMesh;
 import com.zlorbie788.zeus.ui.KnifePickerScreen;
 import com.zlorbie788.zeus.ui.Lightning;
@@ -70,6 +72,11 @@ public final class KnifeSwing extends Module {
     private static final int SK_SPIN = 48;
     private static final int SK_PIN = 49;
     private static final int SK_TOSS = 50;
+    // tricks made for the heavy HD tactical knives (any straight knife can play them)
+    private static final int T_INSPECT = 51;
+    private static final int T_REVERSE = 52;
+    private static final int T_ROLL = 53;
+    private static final int T_XCUT = 54;
     private static final String[] CLIP_NAME = {"draw", "inspect2", "fan", "zen", "aerial", "inspect", "draw", "inspect", "inspect2", "spin", "pinwheel", "toss"};
     private static final float[] CLIP_D = {1.35f, 3.4f, 3.2f, 3.0f, 2.6f, 3.9f, 1.3f, 3.5f, 3.0f, 2.2f, 3.0f, 2.8f};
 
@@ -79,7 +86,8 @@ public final class KnifeSwing extends Module {
         1.2f, 0.85f, 1.6f, 0.95f, 1.15f, 1.35f, 1.7f, 1.9f,
         0.95f, 1.1f, 1.3f,
         1.5f, 1.4f, 1.9f, 1.5f, 1.5f, 2.0f, 1.1f, 3.0f, 3.2f,
-        1.35f * 1.3f, 3.4f * 1.3f, 3.2f * 1.3f, 3.0f * 1.3f, 2.6f * 1.3f, 3.9f * 1.3f, 1.3f * 1.3f, 3.5f * 1.3f, 3.0f * 1.3f, 2.2f * 1.3f, 3.0f * 1.3f, 2.8f * 1.3f};
+        1.35f * 1.3f, 3.4f * 1.3f, 3.2f * 1.3f, 3.0f * 1.3f, 2.6f * 1.3f, 3.9f * 1.3f, 1.3f * 1.3f, 3.5f * 1.3f, 3.0f * 1.3f, 2.2f * 1.3f, 3.0f * 1.3f, 2.8f * 1.3f,
+        3.4f, 1.75f, 1.45f, 1.05f};
     public static final String[] TRICKS = {"Chaos combo", "Flick open", "Fan", "Showcase", "Handle whirl", "Rollover", "Reverse rollover", "Twirl", "Gunslinger", "Aerial toss", "Snap shut", "Speed fan", "Hyper whirl", "Flip frenzy", "Helicopter", "Double toss", "Latch flip", "Cascade", "Inspect", "Studio draw", "Studio rollover", "Studio fan", "Studio zen", "Studio aerial toss", "Studio inspect", "Random"};
     private static final int[][] SCRIPT = {
         {FAN, SFAN, SHOW, HWHIRL, ROLL, HELI, TWIRL, FRENZY, GUN, BDOUBLE, ROLL_BACK, CASCADE, CLOSE},
@@ -88,12 +96,14 @@ public final class KnifeSwing extends Module {
         {SB_DRAW}, {SB_ROLL}, {SB_FAN}, {SB_ZEN}, {SB_AERIAL}, {SB_INSPECT}
     };
     public static final String[] KTRICKS = {"Chaos combo", "Ring spin", "Reverse spin", "Ring flurry", "Pinwheel", "Backflip", "Toss and catch", "Showcase", "Slash",
-        "Triple spin", "Catch flip", "Figure eight", "Side flip", "Slash combo", "Spin stop", "Hyper spin", "Juggle", "Wrist orbit", "Cross spin", "Double toss", "Ring storm", "Inspect", "Studio draw", "Studio ring spin", "Studio back flip", "Studio pinwheel", "Studio toss", "Studio inspect", "Random"};
+        "Triple spin", "Catch flip", "Figure eight", "Side flip", "Slash combo", "Spin stop", "Hyper spin", "Juggle", "Wrist orbit", "Cross spin", "Double toss", "Ring storm", "Inspect", "Studio draw", "Studio ring spin", "Studio back flip", "Studio pinwheel", "Studio toss", "Studio inspect",
+        "Tactical inspect", "Reverse grip flip", "Thumb roll", "X cut", "Random"};
     private static final int[][] KSCRIPT = {
         {KSHOW, RSPIN, KORBIT, KTRIPLE, KEIGHT, KCROSS, RFLURRY, KFLIP, KDOUBLE, KSNAP, KHYPER},
         {RSPIN}, {RREV}, {RFLURRY}, {RPIN}, {KFLIP}, {KAERIAL}, {KSHOW}, {KSLASH},
         {KTRIPLE}, {KCATCH}, {KEIGHT}, {KFLIPY}, {KSLASH3}, {KSNAP}, {KHYPER}, {KJUGGLE}, {KORBIT}, {KCROSS}, {KDOUBLE}, {KSTORM}, {INSPECT},
-        {SK_DRAW}, {SK_SPIN}, {SK_FLIP}, {SK_PIN}, {SK_TOSS}, {SK_INSPECT}
+        {SK_DRAW}, {SK_SPIN}, {SK_FLIP}, {SK_PIN}, {SK_TOSS}, {SK_INSPECT},
+        {T_INSPECT}, {T_REVERSE}, {T_ROLL}, {T_XCUT}
     };
     private static KnifeSwing self;
     private long drewAt;
@@ -101,49 +111,92 @@ public final class KnifeSwing extends Module {
     private long enabledAt;
     private boolean warned;
     private static final String[] TYPES = types();
+    /** Only the HD knives can be chosen; the old pixel designs remain inside as the fallback drawing. */
     private static String[] types() {
         String[] st = KnifeArt.straightNames();
-        String[] all = new String[2 + st.length];
-        all[0] = "Butterfly knife";
-        all[1] = "Karambit";
-        System.arraycopy(st, 0, all, 2, st.length);
-        return all;
+        String[] hd = new String[KnifeArt.HD_COUNT];
+        System.arraycopy(st, st.length - KnifeArt.HD_COUNT, hd, 0, KnifeArt.HD_COUNT);
+        return hd;
     }
-    private final Setting.Choice type = add(new Setting.Choice("Knife type", "Butterfly knife: the balisong with its flips. Karambit: the curved claw knife whose ring sits on your finger and which spins around it. The others are the straight and curved knives of CS2: Bayonet, M9 Bayonet, Huntsman, Flip, Gut, Falchion, Bowie, Navaja, Stiletto, Talon, Ursus, Classic, Paracord, Survival, Nomad, Skeleton, Kukri and the Shadow Daggers. They all use the karambit's tricks.", 0, TYPES));
-    private final Setting.Choice sfinish = add(new Setting.Choice("Knife finish", "The paint of the straight knives: steel, Fade, Slaughter, Doppler, Case hardened and so on.", 0, KnifeArt.SFINISHES)).showIf(() -> self != null && self.type.index() >= 2);
-    private final Setting.Choice when = add(new Setting.Choice("When it shows", "Choose when the knife overlay replaces the first-person hand: empty hand, both hands empty, always, or whenever you hold any sword.", 0, "Empty hand", "Both hands empty", "Always", "Replace any sword"));
-    private final Setting.Bool hideHand = add(new Setting.Bool("Hide the game's own hand", "Hides the game's arm and held item while the knife is in your hand, so the two do not overlap.", true));
-        private final Setting.Choice trick = add(new Setting.Choice("Tsuki / Butterfly (Butterfly)", "Plays the Tsuki / Butterfly animation: the trick key or right click plays it, and the knife changes to Butterfly to match. The repeat count is shown in its display.", 0, TRICKS)).showIf(() -> type.index() == 0);
-        private final Setting.Choice ktrick = add(new Setting.Choice("Tsuki / Karambit & others (Karambit & other knives)", "Plays the Tsuki animation on a karambit and other knives. The knife changes to a karambit-style version to match the animation. The repeat count is shown in its display.", 0, KTRICKS)).showIf(() -> type.index() >= 1);
-        private final Setting.Bool rightClick = add(new Setting.Bool("Keyboard & mouse trick", "The keyboard makes this Tsuki / Butterfly. Pick the Tsuki key in Controls and choose the animation. The move that is already in there decides which animation happens.", true));
-    private final Setting.Bool slash = add(new Setting.Bool("Slash when I attack", "The knife cuts across the screen when you attack.", true));
-    private final Setting.Bool hold = add(new Setting.Bool("Always in hand", "The knife stays in your hand between tricks. Off: it only shows while it moves.", true));
-    private final Setting.Bool auto = add(new Setting.Bool("Keep doing tricks", "Plays a trick by itself every few seconds.", false));
-    private final Setting.Choice preset = add(new Setting.Choice("Butterfly colours", "The colours of the butterfly knife's handles and blade.", 0, KnifeArt.PRESETS)).showIf(() -> type.index() == 0);
-    private final Setting.Choice kcolor = add(new Setting.Choice("Karambit colours", "The colours of the karambit. Voidbloom is the dark purple one with the glowing magenta blade.", 0, KnifeArt.KPRESETS)).showIf(() -> type.index() == 1);
-    private final Setting.Choice kcurve = add(new Setting.Choice("Karambit blade", "How the karambit's blade curves: the claw of the video, a wide hook or a long talon.", 0, KnifeArt.KCURVES)).showIf(() -> type.index() == 1);
-    private final Setting.Choice shape = add(new Setting.Choice("Blade shape", "The shape of the butterfly knife's blade.", 0, KnifeArt.SHAPES)).showIf(() -> type.index() == 0);
-    private final Setting.Choice finish = add(new Setting.Choice("Blade finish", "Overrides the blade colours of the chosen butterfly knife.", 0, KnifeArt.FINISHES)).showIf(() -> type.index() == 0);
-    private final Setting.Choice design = add(new Setting.Choice("Handle design", "Slotted has the long slot and slanted teeth of the knife in the video.", 0, KnifeArt.DESIGNS)).showIf(() -> type.index() == 0);
-    private final Setting.Choice hand = add(new Setting.Choice("Hand", "My skin: the arm wears your own skin, like the game's own hand. The others are painted.", 0, ArmArt.LOOKS));
-    private final Setting.Choice place = add(new Setting.Choice("Place", "Where on the screen. Bottom left is the left hand.", 0, "Bottom right", "Bottom left", "Centre"));
-    private final Setting.Bool showFingers = add(new Setting.Bool("Show fingers", "Draws the blocky fingers and thumb on the handle. Off: only the arm and the knife.", false));
-    private final Setting.Num size = add(new Setting.Num("Size", "How big the hand and knife are.", 1.0, 0.5, 2.5, 0.1, "x"));
-    private final Setting.Num speed = add(new Setting.Num("Speed", "How fast the tricks play.", 1.0, 0.5, 2.0, 0.1, "x"));
-    private final Setting.Num spins = add(new Setting.Num("Rollovers", "How many times the knife turns in a rollover.", 2, 1, 4, 1, ""));
-    private final Setting.Bool sway = add(new Setting.Bool("Sway with the camera", "The hand lags behind when you turn, like the game's own.", true));
-    private final Setting.Bool handLight = add(new Setting.Bool("Light on the hand", "The knife throws a little of its colour on the hand when it flashes and spins.", true));
-    private final Setting.Bool safeDraw = add(new Setting.Bool("Safe draw", "Always uses the flat pixel knives, which draw on every setup. Turn it off to try the 3D models.", true));
-    private final Setting.Info status = add(new Setting.Info("Knife", this::lines));
-    private final Setting.Bool model3d = add(new Setting.Bool("3D knife models", "Draws the knives as real 3D models (a few hundred triangles each, flat shaded, cheap). Off: the classic pixel knives. Falls back to the pixel knives by itself if a model cannot be loaded.", false));
-    private final Setting.Bool trail = add(new Setting.Bool("Light trail", "A fading trail behind the blade.", true));
-    private final Setting.Bool blur = add(new Setting.Bool("Motion blur", "Ghost images of the knife while it moves fast.", true));
-    private final Setting.Bool sparks = add(new Setting.Bool("Sparks and flash", "A flash and a few sparks when it locks open and when it cuts.", true));
-    private final Setting.Num trailStrength = add(new Setting.Num("Trail strength", "Opacity of the blade trail. Set to 0% to keep trails enabled but invisible, or lower it for a cleaner look.", 100, 0, 150, 5, "%")).showIf(() -> trail.on());
-    private final Setting.Num ghostStrength = add(new Setting.Num("Ghost opacity", "Opacity of the motion-blur ghost knives. Lower values make fast tricks less busy.", 100, 0, 150, 5, "%")).showIf(() -> blur.on());
-    private final Setting.Num flashStrength = add(new Setting.Num("Flash intensity", "Strength of the impact bloom and sparks. Lower it for a subtler knife effect.", 100, 0, 150, 5, "%")).showIf(() -> sparks.on());
-    private final Setting.Action gallery = add(new Setting.Action("Open the knife gallery", "A menu showing every knife and every finish, drawn the way the game draws them. Click one to use it.", this::openGallery));
-    private final Setting.Action showNow = add(new Setting.Action("Show it now", "Draws the knife for four seconds whatever your hand is doing, so you can check the knife and its trick without emptying your hand.", () -> previewUntil = System.currentTimeMillis() + 4000L));
+    /** Knife kinds inside the renderer: 0 butterfly, 1 karambit, 2.. straight models; the HD knives are the last of those. */
+    private static final int FIRST_HD = 2 + KnifeArt.SMODELS.length - KnifeArt.HD_COUNT;
+    private static final String[] SECTIONS = {"Knife & hand", "Position", "Tricks", "Effects"};
+    private final Setting.Choice section = add(new Setting.Choice("Show settings for", "The knife settings are split into four pages so you only see what you are changing.", 0, SECTIONS));
+    private final Setting.Action switchKnife = add(new Setting.Action("Switch knife", "Opens a window with every HD knife and a live 3D preview of each. Click one to hold it.", this::openGallery)
+            .primary(() -> "Holding " + shortKnife() + "  ·  " + com.zlorbie788.zeus.core.Crates.ownedCount() + "/" + KnifeArt.HD_COUNT + " knives unlocked"))
+            .showIf(() -> section.index() == 0);
+
+    private String shortKnife() {
+        String n = type == null ? "" : TYPES[ownedHd()];
+        return n.replace(" · ", " ");
+    }
+    private final Setting.Choice type = add(new Setting.Choice("HD knife", "Which HD knife you hold: Tactical, Karambit, M9 Bayonet, Butterfly, Huntsman, Bowie, Skeleton, Ursus or Stiletto, each in several skins.", 0, TYPES)).showIf(() -> false);
+
+    /** The renderer's knife kind for the chosen HD knife. */
+    private int kind() {
+        return FIRST_HD + ownedHd();
+    }
+
+    /** The chosen knife if it has been unlocked from a crate, otherwise the starter karambit. */
+    private int ownedHd() {
+        int i = type.index();
+        return com.zlorbie788.zeus.core.Crates.ownsHd(i) ? i : com.zlorbie788.zeus.core.Crates.starterHd();
+    }
+
+    /** The HD knife currently in hand, for the crates screen. */
+    public static int heldHd() {
+        return self == null ? com.zlorbie788.zeus.core.Crates.starterHd() : self.ownedHd();
+    }
+
+    /** Holds an owned HD knife (from the crates screen) and turns the knife module on. */
+    public static void equipHd(int hd) {
+        if (self == null || !com.zlorbie788.zeus.core.Crates.ownsHd(hd)) return;
+        self.setKind(FIRST_HD + hd);
+        if (!self.enabled()) self.setEnabled(true);
+    }
+
+    private void setKind(int kind) {
+        if (kind >= FIRST_HD && !com.zlorbie788.zeus.core.Crates.ownsHd(kind - FIRST_HD)) return;
+        if (kind >= FIRST_HD && kind - FIRST_HD != type.index()) {
+            type.set(kind - FIRST_HD);
+            drawRise = 1f;          // the new knife rises into the hand
+        }
+    }
+    private final Setting.Choice sfinish = add(new Setting.Choice("Knife finish", "The paint of the straight knives: steel, Fade, Slaughter, Doppler, Case hardened and so on.", 0, KnifeArt.SFINISHES)).showIf(() -> false);
+    private final Setting.Choice when = add(new Setting.Choice("When it shows", "Choose when the knife overlay replaces the first-person hand: empty hand, both hands empty, always, or whenever you hold any sword.", 0, "Empty hand", "Both hands empty", "Always", "Replace any sword")).showIf(() -> section.index() == 0);
+    private final Setting.Bool hideHand = add(new Setting.Bool("Hide the game's own hand", "Hides the game's arm and held item while the knife is in your hand, so the two do not overlap.", true)).showIf(() -> section.index() == 0);
+        private final Setting.Choice trick = add(new Setting.Choice("Tsuki / Butterfly (Butterfly)", "Plays the Tsuki / Butterfly animation: the trick key or right click plays it, and the knife changes to Butterfly to match. The repeat count is shown in its display.", 0, TRICKS)).showIf(() -> section.index() == 2 && bfly());
+        private final Setting.Choice ktrick = add(new Setting.Choice("Trick", "Plays the Tsuki animation on a karambit and other knives. The knife changes to a karambit-style version to match the animation. The repeat count is shown in its display.", 0, KTRICKS)).showIf(() -> section.index() == 2 && !bfly());
+        private final Setting.Bool rightClick = add(new Setting.Bool("Keyboard & mouse trick", "The keyboard makes this Tsuki / Butterfly. Pick the Tsuki key in Controls and choose the animation. The move that is already in there decides which animation happens.", true)).showIf(() -> section.index() == 2);
+    private final Setting.Bool slash = add(new Setting.Bool("Slash when I attack", "The knife cuts across the screen when you attack.", true)).showIf(() -> section.index() == 2);
+    private final Setting.Bool hold = add(new Setting.Bool("Always in hand", "The knife stays in your hand between tricks. Off: it only shows while it moves.", true)).showIf(() -> section.index() == 2);
+    private final Setting.Bool auto = add(new Setting.Bool("Keep doing tricks", "Plays a trick by itself every few seconds.", false)).showIf(() -> section.index() == 2);
+    private final Setting.Choice preset = add(new Setting.Choice("Butterfly colours", "The colours of the butterfly knife's handles and blade.", 0, KnifeArt.PRESETS)).showIf(() -> false);
+    private final Setting.Choice kcolor = add(new Setting.Choice("Karambit colours", "The colours of the karambit. Voidbloom is the dark purple one with the glowing magenta blade.", 0, KnifeArt.KPRESETS)).showIf(() -> false);
+    private final Setting.Choice kcurve = add(new Setting.Choice("Karambit blade", "How the karambit's blade curves: the claw of the video, a wide hook or a long talon.", 0, KnifeArt.KCURVES)).showIf(() -> false);
+    private final Setting.Choice shape = add(new Setting.Choice("Blade shape", "The shape of the butterfly knife's blade.", 0, KnifeArt.SHAPES)).showIf(() -> false);
+    private final Setting.Choice finish = add(new Setting.Choice("Blade finish", "Overrides the blade colours of the chosen butterfly knife.", 0, KnifeArt.FINISHES)).showIf(() -> false);
+    private final Setting.Choice design = add(new Setting.Choice("Handle design", "Slotted has the long slot and slanted teeth of the knife in the video.", 0, KnifeArt.DESIGNS)).showIf(() -> false);
+    private final Setting.Choice hand = add(new Setting.Choice("Hand", "My skin: the arm wears your own skin, like the game's own hand. The others are painted.", 0, ArmArt.LOOKS)).showIf(() -> section.index() == 0);
+    private final Setting.Choice place = add(new Setting.Choice("Place", "Where on the screen. Bottom left is the left hand.", 0, "Bottom right", "Bottom left", "Centre")).showIf(() -> section.index() == 1);
+    private final Setting.Num size = add(new Setting.Num("Size", "How big the hand and knife are.", 1.0, 0.5, 2.5, 0.1, "x")).showIf(() -> section.index() == 1);
+    private final Setting.Num height = add(new Setting.Num("Hand height", "How high the hand holding the knife sits, measured up from the bottom of the screen. Every knife type is placed so its grip lands here.", 30, 5, 70, 1, "%")).showIf(() -> section.index() == 1);
+    private final Setting.Num inset = add(new Setting.Num("Hand distance from edge", "How far in from the side of the screen the hand sits.", 22, 5, 50, 1, "%")).showIf(() -> section.index() == 1);
+    private final Setting.Num speed = add(new Setting.Num("Speed", "How fast the tricks play.", 1.0, 0.5, 2.0, 0.1, "x")).showIf(() -> section.index() == 2);
+    private final Setting.Num spins = add(new Setting.Num("Rollovers", "How many times the knife turns in a rollover.", 2, 1, 4, 1, "")).showIf(() -> section.index() == 2);
+    private final Setting.Bool sway = add(new Setting.Bool("Sway with the camera", "The hand lags behind when you turn, like the game's own.", true)).showIf(() -> section.index() == 1);
+    private final Setting.Bool handLight = add(new Setting.Bool("Light on the hand", "The knife throws a little of its colour on the hand when it flashes and spins.", true)).showIf(() -> section.index() == 0);
+    private final Setting.Choice glove = add(new Setting.Choice("Hand", "Glove: a dark leather glove where the hand holds the knife. Bare: just the arm.", 0, "Glove", "Bare")).showIf(() -> section.index() == 0);
+    private final Setting.Bool safeDraw = add(new Setting.Bool("Safe draw", "Always uses the flat pixel knives, which draw on every setup. Turn it off to try the 3D models.", true)).showIf(() -> false);
+    private final Setting.Info status = add(new Setting.Info("Knife", this::lines)).showIf(() -> section.index() == 0);
+    private final Setting.Bool model3d = add(new Setting.Bool("3D knife models", "Draws the knives as real 3D models (a few hundred triangles each, flat shaded, cheap). Off: the classic pixel knives. Falls back to the pixel knives by itself if a model cannot be loaded.", false)).showIf(() -> false);
+    private final Setting.Bool trail = add(new Setting.Bool("Light trail", "A fading trail behind the blade.", true)).showIf(() -> section.index() == 3);
+    private final Setting.Bool blur = add(new Setting.Bool("Motion blur", "Ghost images of the knife while it moves fast.", true)).showIf(() -> section.index() == 3);
+    private final Setting.Bool sparks = add(new Setting.Bool("Sparks and flash", "A flash and a few sparks when it locks open and when it cuts.", true)).showIf(() -> section.index() == 3);
+    private final Setting.Num trailStrength = add(new Setting.Num("Trail strength", "Opacity of the blade trail. Set to 0% to keep trails enabled but invisible, or lower it for a cleaner look.", 100, 0, 150, 5, "%")).showIf(() -> section.index() == 3 && trail.on());
+    private final Setting.Num ghostStrength = add(new Setting.Num("Ghost opacity", "Opacity of the motion-blur ghost knives. Lower values make fast tricks less busy.", 100, 0, 150, 5, "%")).showIf(() -> section.index() == 3 && blur.on());
+    private final Setting.Num flashStrength = add(new Setting.Num("Flash intensity", "Strength of the impact bloom and sparks. Lower it for a subtler knife effect.", 100, 0, 150, 5, "%")).showIf(() -> section.index() == 3 && sparks.on());
+    private final Setting.Action showNow = add(new Setting.Action("Show it now", "Draws the knife for four seconds whatever your hand is doing, so you can check the knife and its trick without emptying your hand.", () -> previewUntil = com.zlorbie788.zeus.core.Clock.millis() + 4000L)).showIf(() -> section.index() == 0);
     private final Setting.Action[] play = new Setting.Action[TRICKS.length];
     private final Setting.Action[] kplay = new Setting.Action[KTRICKS.length];
     private int lastType;
@@ -179,22 +232,12 @@ public final class KnifeSwing extends Module {
     private final List<float[]> ghostAngle = new ArrayList<>();
     private final List<Long> ghostWhen = new ArrayList<>();
     public KnifeSwing() {
-        super("knife", "Knives", "A butterfly knife, karambit or CS2 straight knife in your own hand, built in 3D and animated like a real flipper. Shows when your hand is empty by default, and right click or the trick key plays a trick.", Category.RENDER);
+        super("knife", "Knives", "An HD tactical knife in your own hand: lit high-resolution 3D models with spins, flips and inspects. Shows when your hand is empty by default, and right click or the trick key plays a trick.", Category.RENDER);
         self = this;
-        for (int i = 0; i < TRICKS.length; i++) {
-            final int id = i;
-            play[i] = add(new Setting.Action("Play (butterfly): " + TRICKS[i], "Switches to the butterfly knife and plays this trick now.", () -> {
-                type.set(0);
-                perform(id);
-            }));
-        }
-        for (int i = 0; i < KTRICKS.length; i++) {
-            final int id = i;
-            kplay[i] = add(new Setting.Action("Play (karambit): " + KTRICKS[i], "Switches to the karambit and plays this trick now.", () -> {
-                type.set(1);
-                perform(id);
-            }));
-        }
+        add(new Setting.Action("Play the chosen trick", "Plays the trick picked above right now, even with something in your hand.", () -> {
+            previewUntil = com.zlorbie788.zeus.core.Clock.millis() + 4000L;
+            perform(ktrick.index());
+        })).showIf(() -> section.index() == 2);
     }
 
     private Setting.Choice finishFor(int t) {
@@ -202,13 +245,10 @@ public final class KnifeSwing extends Module {
     }
     private void openGallery() {
         Minecraft mc = Minecraft.getInstance();
-        int n = TYPES.length;
+        int n = KnifeArt.allKnives().length;
         int[] fins = new int[n];
         for (int i = 0; i < n; i++) fins[i] = finishFor(i).index();
-        mc.setScreen(new KnifePickerScreen(mc.screen, type.index(), fins, (k, f) -> {
-            type.set(k);
-            finishFor(k).set(f);
-        }));
+        mc.setScreen(new KnifePickerScreen(mc.screen, kind(), fins, (k, f) -> setKind(k)));
     }
     private static final String[] INSPECT_STYLES = {
         "a slow turn with a tilt, so the flat of the blade and then the spine face you",
@@ -244,27 +284,40 @@ public final class KnifeSwing extends Module {
         }
     }
 
+    /** Every knife but the butterflies plays the karambit-style tricks; a butterfly flips open like a real one. */
     private boolean karambit() {
-        return type.index() >= 1;
+        return kind() >= 1 && !bfly();
+    }
+
+    /** The held HD knife is a butterfly in pieces: its handles and blade turn round the pins. */
+    private boolean bfly() {
+        int h = hd();
+        return h >= 0 && com.zlorbie788.zeus.ui.KnifeHD.pieces(h) != null;
     }
 
     private java.util.List<String> lines() {
-        int idx = Math.max(0, Math.min(TYPES.length - 1, type.index()));
-        String name = TYPES[idx];
+        String name = TYPES[ownedHd()];
         String mesh = karambit() ? KnifeArt.nameOf(key()) : "Butterfly knife";
         boolean loaded = KnifeMesh.has(mesh);
-        String render = !model3d.on() ? "pixel knife (3D off)"
+        String render = hd() >= 0 ? (KnifeHDGui.ready(hd()) ? "HD model: lit 3D, high resolution"
+                : KnifeHDGui.problem().isEmpty() ? "HD model missing, using pixels" : "HD model failed: " + KnifeHDGui.problem())
+                : !model3d.on() ? "pixel knife: pick an HD knife for the lit 3D look"
                 : loaded ? (safeDraw.on() ? "3D model ready (safe draw on)" : "3D model in use") : "3D mesh missing, using pixels";
         String state = playing() ? "playing a trick" : (isOpen ? "open in hand" : "closed in hand");
         return java.util.List.of(name, render, state, "Tricks: " + (karambit() ? KTRICKS.length : TRICKS.length) + " loaded");
     }
 
+    /** The HD tactical knife in use, or -1. */
+    private int hd() {
+        return KnifeArt.hdType(kind());
+    }
+
     private boolean ring() {
-        return type.index() == 1;
+        return kind() == 1;
     }
 
     private int key() {
-        return ring() ? kcurve.index() : type.index() >= 2 ? 3 + (type.index() - 2) : 0;
+        return ring() ? kcurve.index() : kind() >= 2 ? 3 + (kind() - 2) : 0;
     }
     private float grip() {
         return KnifeArt.gripOf(key());
@@ -275,7 +328,7 @@ public final class KnifeSwing extends Module {
 
     public static boolean hidesHand() {
         if (self == null || !self.enabled() || !self.hideHand.on() || self.vis <= 0.02f) return false;
-        return self.frames > 0 && System.nanoTime() - self.drewAt < 250_000_000L;
+        return self.frames > 0 && com.zlorbie788.zeus.core.Clock.nanoTime() - self.drewAt < 250_000_000L;
     }
     private void perform(int id) {
         int n = karambit() ? KTRICKS.length : TRICKS.length;
@@ -296,8 +349,8 @@ public final class KnifeSwing extends Module {
     }
 
     private int studioOr(int m) {
-        if (m < SB_DRAW) return m;
-        String mesh = !model3d.on() ? null : karambit() ? KnifeArt.nameOf(key()) : "Butterfly knife";
+        if (m < SB_DRAW || m > SK_TOSS) return m;
+        String mesh = !model3d.on() || bfly() ? null : karambit() ? KnifeArt.nameOf(key()) : "Butterfly knife";
         if (mesh != null && KnifeMesh.has(mesh) && KnifeMesh.hasClip(mesh, CLIP_NAME[m - SB_DRAW])) return m;
         return switch (m) {
             case SB_DRAW -> OPEN;
@@ -358,32 +411,32 @@ public final class KnifeSwing extends Module {
             t += MOVE_TIME[line.get(i)[0]];
         }
         lineTotal = t;
-        start = System.nanoTime();
+        start = com.zlorbie788.zeus.core.Clock.nanoTime();
         carry = lastShown;
         carryStart = null;
-        carryAt = System.nanoTime();
+        carryAt = com.zlorbie788.zeus.core.Clock.nanoTime();
     }
     @Override
     protected void onEnable() {
-        enter = System.nanoTime();
+        enter = com.zlorbie788.zeus.core.Clock.nanoTime();
         queue.clear();
         line.clear();
         isOpen = false;
         vis = 0f;
         frames = 0;
         drewAt = 0L;
-        enabledAt = System.nanoTime();
+        enabledAt = com.zlorbie788.zeus.core.Clock.nanoTime();
         warned = false;
         lastFrame = 0;
         lastYaw = Float.NaN;
-        lastType = type.index();
+        lastType = kind();
         meshBroken = false;
         launch(1);
     }
     @Override
     protected void onTick(Minecraft mc) {
-        if (type.index() != lastType) {
-            lastType = type.index();
+        if (kind() != lastType) {
+            lastType = kind();
             queue.clear();
             line.clear();
             isOpen = false;
@@ -400,7 +453,7 @@ public final class KnifeSwing extends Module {
                 default -> main;
             };
         }
-        if (System.currentTimeMillis() < previewUntil) want = true;
+        if (com.zlorbie788.zeus.core.Clock.millis() < previewUntil) want = true;
         boolean active = want && vis > 0.5f;
         boolean down = mc.screen == null && mc.options.keyAttack.isDown();
         if (down && !wasDown && active && slash.on() && !(playing() && secs() < 0.3f)) launchSlash();
@@ -414,15 +467,15 @@ public final class KnifeSwing extends Module {
             line.clear();
             if (!queue.isEmpty()) launch(queue.poll());
         }
-        if (auto.on() && active && !playing() && System.currentTimeMillis() - autoAt > 2500) {
-            autoAt = System.currentTimeMillis();
+        if (auto.on() && active && !playing() && com.zlorbie788.zeus.core.Clock.millis() - autoAt > 2500) {
+            autoAt = com.zlorbie788.zeus.core.Clock.millis();
             perform((karambit() ? KTRICKS.length : TRICKS.length) - 1);
         }
     }
 
     private float secs() {
         if (start == 0) return 99f;
-        return (System.nanoTime() - start) / 1e9f * speed.f() * BASE;
+        return (com.zlorbie788.zeus.core.Clock.nanoTime() - start) / 1e9f * speed.f() * BASE;
     }
     private static float c01(float x) {
         return Math.max(0f, Math.min(1f, x));
@@ -583,7 +636,7 @@ public final class KnifeSwing extends Module {
 
     private Pose idle(boolean open) {
         Pose p = new Pose();
-        float idleT = (System.nanoTime() % 20_000_000_000L) / 1e9f;
+        float idleT = (com.zlorbie788.zeus.core.Clock.nanoTime() % 20_000_000_000L) / 1e9f;
         p.c = open ? PI : 0f;
         if (karambit()) {
             p.gripY = grip();
@@ -604,7 +657,7 @@ public final class KnifeSwing extends Module {
     private Pose shown(float s, boolean running) {
         Pose p = pose(s, running);
         if (carry != null) {
-            float age = (System.nanoTime() - carryAt) / 1e9f;
+            float age = (com.zlorbie788.zeus.core.Clock.nanoTime() - carryAt) / 1e9f;
             if (age < CARRY) {
                 if (carryStart == null) carryStart = p;
                 p = carryOver(p, carry, carryStart, 1f - easeSmoother(age / CARRY));
@@ -661,7 +714,7 @@ public final class KnifeSwing extends Module {
         boolean kb = karambit();
         p.c = kb ? 0f : startsOpen ? PI : 0f;
         if (kb) p.gripY = grip();
-        if (move >= SB_DRAW) {
+        if (move >= SB_DRAW && move <= SK_TOSS) {
             int ci = move - SB_DRAW;
             p.clip = CLIP_NAME[ci];
             p.clipT = x * CLIP_D[ci];
@@ -979,7 +1032,7 @@ public final class KnifeSwing extends Module {
                 if ((x > 0.45f && x < 0.52f) || x > 0.92f) p.flash = 1f;
             }
             case INSPECT -> {
-                int id = type.index();
+                int id = kind();
                 int style = id % 6;
                 float dir = (id / 6) % 2 == 0 ? 1f : -1f;
                 float turns = id >= 12 ? 2f : 1f;
@@ -1065,6 +1118,61 @@ public final class KnifeSwing extends Module {
                 if (x < 0.62f) return movePose(WHIRL, (x - 0.30f) / 0.32f, t, true);
                 return movePose(ROLL, (x - 0.62f) / 0.38f, t, true);
             }
+            case T_INSPECT -> {
+                // raise it into the light, turn it edge on to show the spine and its thickness,
+                // over to the other face, then home; every hold lets the highlights travel
+                float[] ts = {0f, 0.12f, 0.30f, 0.44f, 0.60f, 0.78f, 1f};
+                p.ry = keys(x, ts, 0f, 0.40f, 1.50f, 1.50f, PI + 0.30f, PI + 0.30f, TAU);
+                p.rx = keys(x, ts, 0f, -0.28f, -0.12f, -0.18f, 0.22f, 0.18f, 0f);
+                p.rz = keys(x, ts, 0f, 0.30f, 0.45f, 0.42f, 0.22f, 0.12f, 0f);
+                p.gx = keys(x, ts, 0f, -7f, -8.5f, -8.5f, -7f, -5f, 0f);
+                p.gy = keys(x, ts, 0f, -5.5f, -6.5f, -6.5f, -5.5f, -3.5f, 0f);
+                p.flickZ = 0.06f * bump(x);
+                p.flash = 0.45f * bump((x - 0.58f) / 0.14f) + 0.30f * bump((x - 0.26f) / 0.10f);
+            }
+            case T_REVERSE -> {
+                // toss into a reverse grip (one and a half turns), a short stab, a half turn home
+                float u1 = c01(x / 0.42f), u3 = c01((x - 0.70f) / 0.30f);
+                p.rz = -3f * PI * easeSmoother(u1) - PI * easeSmoother(u3);
+                float up = arc(u1);
+                p.ky = -9f * up;
+                p.kx = -1.5f * up;
+                p.rx = 0.35f * (float) Math.sin(u1 * PI);
+                p.release = Math.max(let(u1), 0.15f * bump(u3));
+                float stab = bump((x - 0.44f) / 0.26f);
+                // lift the hand while the blade points down, so the reverse grip stays in view
+                float lift = keys(x, new float[] {0f, 0.30f, 0.42f, 0.72f, 0.88f, 1f}, 0f, 4f, 9f, 9f, 3f, 0f);
+                p.gy = -lift + 4.2f * stab + kick(x, 0.42f, 0.6f) + kick(x, 1f, 0.4f);
+                p.gx = -0.75f * lift;
+                p.gz = -1.5f * stab;
+                p.rush = (u1 > 0.04f && u1 < 0.96f) || (u3 > 0.04f && u3 < 0.96f) ? 1f : 0f;
+                p.shake = 0.45f * bump((x - 0.42f) / 0.08f);
+                p.flash = 0.9f * bump((x - 0.52f) / 0.10f);
+            }
+            case T_ROLL -> {
+                // two full rolls round the vertical, so both faces and both edges sweep past
+                p.ry = spin(x, 2f, 0.35f);
+                p.rz = 0.32f * (float) Math.sin(x * TAU) * bump(x);
+                p.rx = -0.18f * bump(x);
+                spinHand(p, x);
+                p.release = 0.25f * p.release;
+                p.gx = -2.5f * (float) Math.sin(x * TAU);
+                p.gy = -2.2f * bump(x) + kick(x, 0.9f, 0.4f);
+                float face = (float) Math.abs(Math.cos(p.ry));
+                p.flash = 0.55f * (float) Math.pow(face, 24.0) * bump(x);
+            }
+            case T_XCUT -> {
+                // a two stroke cross: down and in, back up and across
+                float[] ts = {0f, 0.14f, 0.34f, 0.46f, 0.66f, 0.82f, 1f};
+                p.gx = keys(x, ts, 0f, 1.5f, -16f, -13f, 3f, 1f, 0f);
+                p.gy = keys(x, ts, 0f, -6f, 2f, -6f, 3f, 1f, 0f);
+                p.rz = keys(x, ts, 0f, 0.40f, -0.85f, -0.55f, 0.55f, 0.15f, 0f);
+                p.flickZ = keys(x, ts, 0f, 0.16f, -0.50f, -0.32f, 0.20f, 0.05f, 0f);
+                p.flickY = 0.15f * bump((x - 0.14f) / 0.32f) - 0.15f * bump((x - 0.46f) / 0.30f);
+                p.rush = (x > 0.16f && x < 0.36f) || (x > 0.48f && x < 0.68f) ? 1f : 0f;
+                p.flash = 0.9f * bump((x - 0.28f) / 0.10f) + 0.9f * bump((x - 0.60f) / 0.10f);
+                p.shake = 0.3f * bump((x - 0.30f) / 0.08f) + 0.3f * bump((x - 0.62f) / 0.08f);
+            }
             case KSLASH -> {
                 slashPose(p, t);
                 p.b = 0f;
@@ -1074,6 +1182,23 @@ public final class KnifeSwing extends Module {
             default -> slashPose(p, t);
         }
         return p;
+    }
+
+    /**
+     * Keyframed curve: values at the times ts (0..1), joined by Catmull-Rom splines, so a move
+     * flows through its key poses with no stop at each one, and eases at the ends.
+     */
+    private static float keys(float x, float[] ts, float... vs) {
+        int n = ts.length;
+        if (x <= ts[0]) return vs[0];
+        if (x >= ts[n - 1]) return vs[n - 1];
+        int i = 0;
+        while (i < n - 2 && x > ts[i + 1]) i++;
+        float t0 = ts[i], t1 = ts[i + 1], h = t1 - t0;
+        float u = (x - t0) / h, u2 = u * u, u3 = u2 * u;
+        float m0 = i == 0 ? 0f : (vs[i + 1] - vs[i - 1]) / (ts[i + 1] - ts[i - 1]) * h;
+        float m1 = i + 2 >= n ? 0f : (vs[i + 2] - vs[i]) / (ts[i + 2] - ts[i]) * h;
+        return (2 * u3 - 3 * u2 + 1) * vs[i] + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * vs[i + 1] + (u3 - u2) * m1;
     }
 
     private static void spinHand(Pose p, float x) {
@@ -1138,7 +1263,7 @@ public final class KnifeSwing extends Module {
     @Override
     protected void onHud(GuiGraphics g, Minecraft mc, float partial, int w, int h) {
         if (mc.screen != null || !enabled() || mc.player == null) return;
-        long now = System.nanoTime();
+        long now = com.zlorbie788.zeus.core.Clock.nanoTime();
         float dt = lastFrame == 0L ? 0.016f : Math.min(0.08f, (now - lastFrame) / 1e9f);
         lastFrame = now;
         vis += ((want ? 1f : 0f) - vis) * Math.min(1f, dt * 9f);
@@ -1150,7 +1275,7 @@ public final class KnifeSwing extends Module {
             return;
         }
         float sc = Math.max(0.5f, (float) size.f());
-        float unit = Math.max(0.6f, h / 540f * 4.6f * sc) * (0.62f + 0.38f * vis);
+        float unit = Math.max(0.6f, h / 540f * 5.6f * sc) * (0.62f + 0.38f * vis);
         if (!Float.isFinite(sc) || !Float.isFinite(unit) || unit <= 0f || w <= 0 || h <= 0) return;
         float yaw = mc.player.getYRot(), pitch = mc.player.getXRot();
         if (!Float.isNaN(lastYaw)) {
@@ -1171,21 +1296,31 @@ public final class KnifeSwing extends Module {
         swayY = Math.max(-lim, Math.min(lim, swayY));
 
         boolean left = place.index() == 1;
-        float x0 = place.index() == 2 ? w / 2f : left ? 9f * unit : w - 9f * unit;
-        float y0 = h + 4.6f * unit;
         float u = left ? -unit : unit;
+        // Anchor every knife type by its grip at rest, so a butterfly, a karambit and the HD knives all
+        // sit where the player asked instead of wherever each model's own offsets happen to put them.
+        float[] grip = restGrip(u);
+        float edge = (float) (inset.get() / 100.0) * w;
+        float targetX = place.index() == 2 ? w * 0.5f + 10f * unit : left ? edge : w - edge;
+        float targetY = h * (1f - (float) (height.get() / 100.0));
+        float x0 = targetX - grip[0];
+        float y0 = targetY - grip[1];
 
         Pose p = shown(secs(), playing());
+        float[] moveOff = motion(mc, partial, unit, dt);
+        p.flickZ += moveOff[2];
         Frame f = frame(p);
         KnifeArt.Look look = lookFor();
         look.fine = !Perf.gameFast();
         look.mirror = left;
         float fade = Math.min(1f, vis);
-        boolean mesh = meshReady();
+        int hdKnife = hd();
+        boolean bf = bfly();
+        boolean mesh = hdKnife < 0 && meshReady();
         int colour = Draw.rgba(look.glow, 0.85f * fade);
 
         g.pose().pushMatrix();
-        g.pose().translate(x0 + swayX, y0 + swayY);
+        g.pose().translate(x0 + swayX + moveOff[0], y0 + swayY + moveOff[1]);
 
         float[] tip = tipOf(f, p);
         float[] tp = onScreen(tip, u);
@@ -1225,11 +1360,17 @@ public final class KnifeSwing extends Module {
             ghostAngle.remove(0);
             ghostWhen.remove(0);
         }
+        // the world's light where the player stands dims the knife and the arm, like the game's own hand
+        lightNow += (worldLight(mc) - lightNow) * Math.min(1f, dt * 4f);
+        KnifeHD.ambient = lightNow;
+        rig.light(lightNow);
         float ghostFade = Math.min(1f, ghostStrength.f() / 100f);
         for (int i = 0; i < ghostAt.size(); i++) {
             float[] a = ghostAngle.get(i);
             float al = 0.20f * ghostFade * (1f - i / (float) Math.max(1, ghostAt.size())) * fade;
             if (al < 0.02f) continue;
+            if (hdKnife >= 0 && (bf ? KnifeHDGui.drawButterfly(g, hdKnife, ghostAt.get(i), a[0], a[1], a[2], u, al, false)
+                    : KnifeHDGui.draw(g, hdKnife, ghostAt.get(i), u, al, false))) continue;
             if (!mesh || !drawMesh(g, ghostAt.get(i), a[0], a[1], a[2], look, u, al)) pixelKnife(g, ghostAt.get(i), a[0], a[1], a[2], look, u, al);
         }
 
@@ -1237,15 +1378,28 @@ public final class KnifeSwing extends Module {
         rig.alpha(fade);
         ArmArt.Skin skin = ArmArt.skin(mc.player, hand.index(), handLight.on() ? glowOf(look, p) : 0);
         float aw = ArmArt.armWidth(skin);
-        rig.box(f.arm, 0f, -ARM_L / 2f, 0f, aw, ARM_L * 1.06f, 8f, ArmArt.arm(skin), false, 40f);
-        if (showFingers.on()) {
-            if (karambit()) kFingers(f, p, skin);
-            else fingers(f, p, skin);
+        // The forearm always runs off the bottom of the screen: when the hand sits high, the arm grows longer.
+        Rig.Painter armPaint = ArmArt.arm(skin);
+        for (float len : new float[] {1.06f, 1.5f, 2.0f, 2.7f, 3.6f}) {
+            rig.clear();
+            rig.alpha(fade);
+            rig.box(f.arm, 0f, ARM_L * 0.03f - ARM_L * len / 2f, 0f, aw, ARM_L * len, 8f, armPaint, false, 40f);
+            float[] e = rig.extent();
+            float bottom = y0 + swayY + moveOff[1] + Math.max(e[3] * u, e[1] * u);
+            if (bottom >= h + 2f) break;
+        }
+        if (glove.index() == 0) {
+            // a leather glove over the hand end, so the arm does not end in a bare stump at the handle
+            float gl = 5f;
+            rig.box(f.arm, 0f, ARM_L * 0.03f - gl / 2f + 0.2f, 0f, aw + 0.6f, gl, 8.6f, ArmArt.glove(skin), false);
         }
         rig.flush(g, u);
 
         boolean knifeDrawn;
-        if (mesh && p.clip != null && KnifeMesh.hasClip(meshName(), p.clip)) {
+        if (hdKnife >= 0) {
+            knifeDrawn = bf ? KnifeHDGui.drawButterfly(g, hdKnife, f.knife, p.a, p.b, p.c, u, fade, true)
+                    : KnifeHDGui.draw(g, hdKnife, f.knife, u, fade, true);
+        } else if (mesh && p.clip != null && KnifeMesh.hasClip(meshName(), p.clip)) {
             try {
                 knifeDrawn = KnifeMesh.drawClip(g, meshName(), p.clip, p.clipT, f.knife, look, u, fade, Perf.gameFast());
             } catch (Throwable t) {
@@ -1257,15 +1411,21 @@ public final class KnifeSwing extends Module {
         } else {
             knifeDrawn = pixelKnife(g, f.knife, p.a, p.b, p.c, look, u, fade);
         }
+        KnifeHD.ambient = 1f;
+        if (knifeDrawn && hdKnife >= 0) {
+            KnifeHD.Model bm = bf ? KnifeHD.pieces(hdKnife).blade : KnifeHD.model(hdKnife);
+            Rig.T bt = bf ? KnifeHDGui.butterflyBlade(hdKnife, f.knife, p.a, p.b, p.c) : f.knife;
+            twinkle(g, bm, bt, u, dt, fade);
+        }
         if (!knifeDrawn) knifeDrawn = pixelKnife(g, f.knife, p.a, p.b, p.c, look, u, fade);
         if (!knifeDrawn) {
             lastResort(g, f.knife, p.c, look, u, fade);
             knifeDrawn = true;
         }
         if (knifeDrawn) {
-            drewAt = System.nanoTime();
+            drewAt = com.zlorbie788.zeus.core.Clock.nanoTime();
             frames++;
-        } else if (!warned && System.nanoTime() - enabledAt > 3_000_000_000L) {
+        } else if (!warned && com.zlorbie788.zeus.core.Clock.nanoTime() - enabledAt > 3_000_000_000L) {
             warned = true;
             com.zlorbie788.zeus.core.Zeus.toast("The knife is not drawing. Try Safe draw in Knife Swing.", false);
         }
@@ -1284,11 +1444,93 @@ public final class KnifeSwing extends Module {
         g.pose().popMatrix();
     }
 
+    // ------------------------------------------------------------------ body motion
+    private float landKick;
+    private float landVel;
+    private float sprintMix;
+    private float airLift;
+    private boolean wasGround = true;
+    private double lastVy;
+    private float drawRise = 1f;
+
+    /**
+     * How the hand moves with the body, on top of the trick pose: a walking bob in a figure of eight
+     * like the game's own hand, a forward lean and faster bob when sprinting, a lift while airborne, a
+     * springy dip on landing, a crouch drop and a rise into view when the knife is drawn.
+     * Returns screen offsets {dx, dy} and an extra roll.
+     */
+    private float[] motion(Minecraft mc, float partial, float unit, float dt) {
+        float dx = 0f, dy = 0f, roll = 0f;
+        var pl = mc.player;
+        if (pl == null || !sway.on()) return new float[] {0f, 0f, 0f};
+        try {
+            var st = pl.avatarState();
+            float walk = st.getInterpolatedWalkDistance(partial);
+            float bob = st.getInterpolatedBob(partial);
+            float ph = walk * (float) Math.PI;
+            dx += (float) Math.sin(ph) * bob * 18f * unit;
+            dy += -Math.abs((float) Math.cos(ph)) * bob * 24f * unit;
+            roll += (float) Math.sin(ph) * bob * 0.6f;
+        } catch (Throwable ignored) {
+        }
+        sprintMix += ((pl.isSprinting() ? 1f : 0f) - sprintMix) * Math.min(1f, dt * 6f);
+        dx += 1.6f * unit * sprintMix;
+        dy += 2.2f * unit * sprintMix;
+        roll += -0.07f * sprintMix;
+
+        boolean ground = pl.onGround();
+        double vy = pl.getDeltaMovement().y;
+        if (ground && !wasGround) {
+            // landing: a kick proportional to the fall speed, then a damped spring settles it
+            landVel += (float) Math.min(1.6, Math.max(0.25, -lastVy * 2.2));
+        }
+        wasGround = ground;
+        lastVy = vy;
+        float k = 90f, damp = 11f;
+        float acc = -k * landKick - damp * landVel;
+        landVel += acc * Math.min(dt, 0.05f);
+        landKick += landVel * Math.min(dt, 0.05f) * 6f;
+        landKick = Math.max(-1.5f, Math.min(1.5f, landKick));
+        dy += landKick * 9f * unit;
+
+        airLift += ((ground ? 0f : 1f) - airLift) * Math.min(1f, dt * 5f);
+        dy += -1.4f * unit * airLift * (float) Math.max(-1, Math.min(1, vy * 3));
+
+        dy += (pl.isCrouching() ? 2.5f : 0f) * unit;
+
+        // rise into view when the knife appears
+        drawRise += ((vis > 0.05f ? 0f : 1f) - drawRise) * Math.min(1f, dt * 7f);
+        dy += drawRise * drawRise * 14f * unit;
+        roll += drawRise * 0.35f;
+        return new float[] {dx, dy, roll};
+    }
+
+    /** Where the knife's grip sits on screen, relative to the hand anchor, with the knife at rest. */
+    private float[] restGrip(float u) {
+        Pose p = new Pose();
+        p.c = PI;
+        if (karambit()) {
+            p.gripY = grip();
+            p.c = 0f;
+        }
+        Frame f = frame(p);
+        return onScreen(new float[] {f.knife.x, f.knife.y, f.knife.z}, u);
+    }
+
     private KnifeArt.Look lookFor() {
-        float time = (System.nanoTime() % 60_000_000_000L) / 1e9f;
-        if (type.index() == 0) return KnifeArt.look(preset.index(), shape.index(), finish.index(), design.index(), time);
-        if (type.index() == 1) return KnifeArt.kLook(kcolor.index(), kcurve.index(), time);
-        return KnifeArt.sLook(sfinish.index(), type.index() - 2, time);
+        float time = (com.zlorbie788.zeus.core.Clock.nanoTime() % 60_000_000_000L) / 1e9f;
+        if (kind() == 0) return KnifeArt.look(preset.index(), shape.index(), finish.index(), design.index(), time);
+        if (kind() == 1) return KnifeArt.kLook(kcolor.index(), kcurve.index(), time);
+        KnifeArt.Look l = KnifeArt.sLook(sfinish.index(), kind() - 2, time);
+        int hd = hd();
+        KnifeHD.Model m = hd >= 0 ? KnifeHD.model(hd) : null;
+        if (m != null) {
+            l.glow = m.glow;
+            l.blade[0] = Draw.lighten(m.glow, 0.35f);
+            l.blade[1] = m.glow;
+            l.blade[2] = Draw.darken(m.glow, 0.45f);
+        }
+        return l;
     }
 
     private String meshName() {
@@ -1348,40 +1590,67 @@ public final class KnifeSwing extends Module {
     }
 
     private float[] tipOf(Frame f, Pose p) {
+        if (bfly()) {
+            int h = hd();
+            return com.zlorbie788.zeus.ui.KnifeHD.tip(com.zlorbie788.zeus.ui.KnifeHD.pieces(h).blade, KnifeHDGui.butterflyBlade(h, f.knife, p.a, p.b, p.c));
+        }
         return karambit() ? KnifeArt.kTip(f.knife, key()) : KnifeArt.tip(f.knife, p.c);
     }
 
-    private void kFingers(Frame f, Pose p, ArmArt.Skin skin) {
-        Rig.Painter paint = ArmArt.finger(skin);
-        float rel = Math.max(0f, Math.min(1f, p.release));
-        float z = -2.3f;
-        for (int i = 0; i < 3; i++) {
-            float y = (i - 1) * 2.7f;
-            Rig.T hinge = f.fist.move(4.0f, y, z).rotY(rel * (1.15f + 0.1f * i));
-            rig.box(hinge, -2.8f, 0f, 0f, 5.6f, 2.6f, 3.2f, paint, false);
+    private float lightNow = 1f;
+    private final java.util.ArrayDeque<float[]> twinkles = new java.util.ArrayDeque<>();
+    private float twinkleDue;
+
+    /**
+     * Chroma blades shed tiny stars that drift up and fade, so they read as rare even in bright daylight, where a
+     * glow is hard to see. A few dozen screen-space points at most: next to nothing to draw.
+     */
+    private void twinkle(GuiGraphics g, KnifeHD.Model m, Rig.T k, float u, float dt, float fade) {
+        if (m == null || m.emissive() < 0.9f || still()) {
+            twinkles.clear();
+            return;
         }
-        boolean inRing = ring() && Math.abs(p.kx) + Math.abs(p.ky) + Math.abs(p.kz) < 0.6f;
-        if (inRing) {
-            Rig.T ring = f.fist.move(0.2f, -KnifeArt.KGRIP, -1.3f);
-            rig.box(ring, 0f, 1.4f, 0f, 2.4f, 4.6f, 2.8f, paint, false);
+        twinkleDue += dt * 9f;
+        while (twinkleDue >= 1f && twinkles.size() < 40) {
+            twinkleDue -= 1f;
+            float[] at = KnifeHD.along(m, k, 0.12f + 0.85f * rnd.nextFloat());
+            float sc = u * 90f / (90f + at[2]);
+            twinkles.add(new float[] {at[0] * sc, at[1] * sc, (rnd.nextFloat() - 0.5f) * 10f, -6f - rnd.nextFloat() * 14f,
+                    0f, 0.55f + rnd.nextFloat() * 0.7f, rnd.nextFloat()});
         }
-        Rig.T thumb = f.fist.move(-2.3f, -4.3f - 1.5f * rel, z - 0.2f).rotZ(0.25f + 0.7f * rel);
-        rig.box(thumb, 0f, 0f, 0f, 2.6f, 4.4f, 2.6f, paint, false);
+        twinkleDue = Math.min(twinkleDue, 1f);
+        float au = Math.abs(u);
+        int star = Draw.lighten(m.glow, 0.55f);
+        for (java.util.Iterator<float[]> it = twinkles.iterator(); it.hasNext(); ) {
+            float[] q = it.next();
+            q[4] += dt;
+            if (q[4] >= q[5]) {
+                it.remove();
+                continue;
+            }
+            q[0] += q[2] * dt;
+            q[1] += q[3] * dt;
+            float life = q[4] / q[5];
+            float a = (float) Math.sin(Math.PI * life) * fade;
+            int sz = Math.max(1, Math.round(au * (0.18f + 0.22f * q[6]) * (1f - 0.5f * life)));
+            int x = Math.round(q[0]), y = Math.round(q[1]);
+            int c = Draw.rgba(q[6] > 0.6f ? 0xFFFFFFFF : star, a);
+            g.fill(x - sz, y, x + sz + 1, y + 1, c);
+            g.fill(x, y - sz, x + 1, y + sz + 1, c);
+            if (sz > 1) Draw.glow(g, x - 1, y - 1, 2, 2, 1, m.glow, sz * 2, 0.35f * a * 3f / (sz * 2));
+        }
     }
 
-    private void fingers(Frame f, Pose p, ArmArt.Skin skin) {
-        Rig.Painter paint = ArmArt.finger(skin);
-        float rel = Math.max(0f, Math.min(1f, p.release));
-        float z = -(KnifeArt.PIN_Z + KnifeArt.HT / 2f + 1.5f);
-        for (int i = 0; i < 4; i++) {
-            float y = (i - 1.5f) * 2.4f;
-            float hx = 3.6f;
-            Rig.T hinge = f.fist.move(hx, y, z).rotY(rel * (1.15f + 0.1f * i));
-            rig.box(hinge, -2.5f, 0f, 0f, 5.0f, 2.3f, 3.0f, paint, false);
-        }
-        Rig.T thumb = f.fist.move(-2.3f, -5.6f - 2f * rel, z - 0.2f).rotZ(0.25f + 0.7f * rel);
-        rig.box(thumb, 0f, 0f, 0f, 2.6f, 4.6f, 2.6f, paint, false);
+    /** 0.3 in the dark up to 1 in full light, from the block and sky light at the player's eyes. */
+    private static float worldLight(Minecraft mc) {
+        if (mc.level == null || mc.player == null) return 1f;
+        if (mc.player.hasEffect(net.minecraft.world.effect.MobEffects.NIGHT_VISION)) return 1f;
+        net.minecraft.core.BlockPos pos = net.minecraft.core.BlockPos.containing(mc.player.getEyePosition());
+        int raw = mc.level.getRawBrightness(pos, mc.level.getSkyDarken());
+        float l = raw / 15f;
+        return 0.30f + 0.70f * l * (0.85f + 0.15f * l);
     }
+
     private static boolean still() {
         return com.zlorbie788.zeus.ui.UiSettings.REDUCE_MOTION.on();
     }

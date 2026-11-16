@@ -77,7 +77,7 @@ public final class ZeusScreen extends Screen {
     private Setting.Text editing;
     private boolean fieldDrawn;
 
-    private final long bornNanos = System.nanoTime();
+    private final long bornNanos = com.zlorbie788.zeus.core.Clock.nanoTime();
     private final long startNanos = bornNanos;
     private long lastNanos;
     private float offset;
@@ -203,7 +203,7 @@ public final class ZeusScreen extends Screen {
             search = new EditBox(minecraft.font, 0, 0, 100, 12, Component.empty());
             search.setMaxLength(32);
             search.setBordered(false);
-            search.setHint(Component.literal("Search modules"));
+            search.setHint(Component.literal("Search modules, or type active"));
             search.setResponder(s -> scroll = 0);
         }
         addRenderableWidget(search);
@@ -241,11 +241,11 @@ public final class ZeusScreen extends Screen {
 
     private float time() {
         if (!intro) return Intro.LENGTH + 1f;
-        return (System.nanoTime() - startNanos) / 1e9f * speed + offset;
+        return (com.zlorbie788.zeus.core.Clock.nanoTime() - startNanos) / 1e9f * speed + offset;
     }
 
     private float anim() {
-        return (System.nanoTime() - bornNanos) / 1e9f;
+        return (com.zlorbie788.zeus.core.Clock.nanoTime() - bornNanos) / 1e9f;
     }
 
     private void skipIntro() {
@@ -276,12 +276,15 @@ public final class ZeusScreen extends Screen {
     public void renderBackground(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         if (bgDrawn) return;
         bgDrawn = true;
+        // above the game's HUD: its hearts and hotbar are pictures, drawn after shapes in the same layer, so
+        // without a fresh layer they would show through the dim
+        if (minecraft != null && minecraft.level != null) g.nextStratum();
         if (windowsLayout()) g.fillGradient(0, 0, width, height, 0x90040610, 0xB8070B16);
         else g.fillGradient(0, 0, width, height, 0xC0040610, 0xE0070B16);
     }
 
     private boolean bgDrawn;
-    private long pageAt = System.nanoTime();
+    private long pageAt = com.zlorbie788.zeus.core.Clock.nanoTime();
     private static final java.util.Map<String, Long> BURSTS = new java.util.HashMap<>();
 
     @Override
@@ -290,7 +293,7 @@ public final class ZeusScreen extends Screen {
         my = mouseY;
         Accent.contrast(UiSettings.CONTRAST.on());
         fieldDrawn = false;
-        long now = System.nanoTime();
+        long now = com.zlorbie788.zeus.core.Clock.nanoTime();
         float dt = lastNanos == 0 ? 0.016f : Math.min(0.1f, (now - lastNanos) / 1e9f);
         lastNanos = now;
         dtNow = dt;
@@ -655,7 +658,7 @@ public final class ZeusScreen extends Screen {
         int room = (showChip ? chX - K(10) : has ? cbX - K(8) : x + w - K(14)) - textX;
         if (!has) {
             tx(g, Ty.fit("Search modules, settings…", room, tp(14.5), Ty.MED), textX, cy, 14.5, Ty.MED, cSub());
-            if (focused && ((System.nanoTime() / 530_000_000L) & 1L) == 0L) g.fill(textX, cy - K(9), textX + Math.max(1, K(1.5)), cy + K(9), TXT);
+            if (focused && ((com.zlorbie788.zeus.core.Clock.nanoTime() / 530_000_000L) & 1L) == 0L) g.fill(textX, cy - K(9), textX + Math.max(1, K(1.5)), cy + K(9), TXT);
         } else {
             drawField(g, search, textX, cy, room, 14.5, TXT, bl, focused);
         }
@@ -702,7 +705,7 @@ public final class ZeusScreen extends Screen {
             }
         }
         Ty.text(g, vis, x, cy, p, Ty.MED, color);
-        if (focused && ((System.nanoTime() / 530_000_000L) & 1L) == 0L) {
+        if (focused && ((com.zlorbie788.zeus.core.Clock.nanoTime() / 530_000_000L) & 1L) == 0L) {
             int cx = x + Ty.w(v.substring(start, cur), p, Ty.MED);
             g.fill(cx, cy - K(9), cx + Math.max(1, K(1.5)), cy + K(9), TXT);
         }
@@ -710,7 +713,7 @@ public final class ZeusScreen extends Screen {
 
     private void openPage(int target) {
         page = target;
-        pageAt = System.nanoTime();
+        pageAt = com.zlorbie788.zeus.core.Clock.nanoTime();
         lastPage = target;
         scroll = 0;
         scrollShown = 0;
@@ -854,7 +857,7 @@ public final class ZeusScreen extends Screen {
 
     private void drawPerf(GuiGraphics g, int x, int y, int w, int h, int bl, int bl2) {
         int line = Math.max(1, Math.round(k));
-        long now = System.currentTimeMillis();
+        long now = com.zlorbie788.zeus.core.Clock.millis();
         int fps = Math.max(0, com.zlorbie788.zeus.mods.Brain.ctx().fps);
         if (now - fpsAt >= 250) {
             fpsAt = now;
@@ -1016,7 +1019,34 @@ public final class ZeusScreen extends Screen {
             cachedQuery = q;
             scoreCache.clear();
             resultCache.clear();
+            settingHit.clear();
         }
+    }
+
+    /** Per module, for the current search: the setting the search found it by, or "" when it matched by name. */
+    private final java.util.Map<Module, String> settingHit = new java.util.HashMap<>();
+
+    private String settingHit(Module m, String q) {
+        if (q == null || q.isBlank()) return "";
+        syncSearchCache(q);
+        String have = settingHit.get(m);
+        if (have != null) return have;
+        Index ix = INDEX.computeIfAbsent(m, Index::new);
+        String needle = normalizeSearch(q);
+        int byName = Math.max(scoreText(ix.name, m.name, needle), scoreText(ix.id, m.id, needle));
+        for (int i = 0; i < ix.aliasText.length; i++) byName = Math.max(byName, scoreText(ix.aliasText[i], m.aliases().get(i), needle) - 10);
+        String hit = "";
+        int best = Math.max(byName, 0);
+        List<Setting> list = m.settings();
+        for (int i = 0; i < ix.settingNames.length && i < list.size(); i++) {
+            int sc = scoreText(ix.settingNames[i], list.get(i).name, needle) - 90;
+            if (sc >= 0 && sc > best - 90 && byName < 0) {
+                best = sc + 90;
+                hit = list.get(i).name;
+            }
+        }
+        settingHit.put(m, hit);
+        return hit;
     }
 
     private boolean matches(Module m, String q) {
@@ -1028,18 +1058,45 @@ public final class ZeusScreen extends Screen {
         syncSearchCache(q);
         Integer cached = scoreCache.get(m);
         if (cached != null) return cached;
+        // "active" (or on / enabled) lists the modules that are switched on, "inactive" (off / disabled)
+        // the ones that are off; "active esp" narrows that down by name.
+        String lower = q.trim().toLowerCase(java.util.Locale.ROOT);
+        Boolean wantOn = null;
+        String rest = lower;
+        for (String[] group : STATE_WORDS) {
+            for (String word : group) {
+                if (lower.equals(word) || lower.startsWith(word + " ")) {
+                    wantOn = group == STATE_WORDS[0];
+                    rest = lower.substring(word.length()).trim();
+                    break;
+                }
+            }
+            if (wantOn != null) break;
+        }
+        if (wantOn != null) {
+            int score = !m.toggleable() || m.enabled() != wantOn ? -1 : rest.isEmpty() ? 1500 - Math.min(400, m.name.length()) : textScore(m, rest);
+            scoreCache.put(m, score);
+            return score;
+        }
+        int best = textScore(m, q);
+        scoreCache.put(m, best);
+        return best;
+    }
+
+    private static final String[][] STATE_WORDS = {{"active", "enabled", "on", "running"}, {"inactive", "disabled", "off"}};
+
+    private int textScore(Module m, String q) {
         Index ix = INDEX.computeIfAbsent(m, Index::new);
         String needle = normalizeSearch(q);
         int best = Math.max(scoreText(ix.name, m.name, needle), scoreText(ix.id, m.id, needle));
         for (int i = 0; i < ix.aliasText.length; i++) best = Math.max(best, scoreText(ix.aliasText[i], m.aliases().get(i), needle) - 10);
         best = Math.max(best, scoreText(ix.category, null, needle) - 20);
-        best = Math.max(best, scoreText(ix.desc, null, needle) - 140);
+        best = Math.max(best, scoreLong(ix.desc, needle) - 140);
         List<Setting> list = m.settings();
         for (int i = 0; i < ix.settingNames.length && i < list.size(); i++) {
             best = Math.max(best, scoreText(ix.settingNames[i], list.get(i).name, needle) - 90);
-            best = Math.max(best, scoreText(ix.settingDescs[i], null, needle) - 170);
+            best = Math.max(best, scoreLong(ix.settingDescs[i], needle) - 170);
         }
-        scoreCache.put(m, best);
         return best;
     }
 
@@ -1073,6 +1130,23 @@ public final class ZeusScreen extends Screen {
         return -1;
     }
 
+    /**
+     * Matching inside long text (descriptions): the words must really be there, or one word close to a typo of
+     * it. Scattered letters across a whole sentence do not count, or every long description matches everything.
+     */
+    private static int scoreLong(String hay, String needle) {
+        if (needle.isEmpty() || hay.isEmpty()) return -1;
+        int at = hay.indexOf(needle);
+        if (at >= 0) return 930 - Math.min(100, at);
+        if (needle.length() < 5 || needle.indexOf(' ') >= 0) return -1;
+        int limit = needle.length() <= 8 ? 1 : 2;
+        for (String word : hay.split("[^a-z0-9]+")) {
+            if (word.length() < 4) continue;
+            if (editDistance(needle, word) <= limit) return 600;
+        }
+        return -1;
+    }
+
     private static boolean isSubsequence(String needle, String hay) {
         int at = 0;
         for (int i = 0; i < hay.length() && at < needle.length(); i++) {
@@ -1099,8 +1173,18 @@ public final class ZeusScreen extends Screen {
         return prev[b.length()];
     }
 
+    private int enabledSignature;
+
     private List<Module> searchResults(String q, Category only) {
         syncSearchCache(q);
+        // State searches ("active") must follow modules being switched while the list is open.
+        int sig = 1;
+        for (Module m : Zeus.all()) if (m.enabled()) sig = sig * 31 + m.id.hashCode();
+        if (sig != enabledSignature) {
+            enabledSignature = sig;
+            scoreCache.clear();
+            resultCache.clear();
+        }
         Object key = only == null ? "*" : only;
         List<Module> hit = resultCache.get(key);
         if (hit != null) return hit;
@@ -1299,7 +1383,7 @@ public final class ZeusScreen extends Screen {
                     final int idx = i;
                     hit(cx, ty + K(3), cell, cellH, b -> {
                         UiSettings.CARDS.set(idx == 0 ? 1 : 0);
-                        pageAt = System.nanoTime();
+                        pageAt = com.zlorbie788.zeus.core.Clock.nanoTime();
                     }, idx == 0 ? "One wide card per row" : "Two cards side by side");
                 }
                 cur = vx - K(10);
@@ -1317,7 +1401,7 @@ public final class ZeusScreen extends Screen {
                     int n = UiSettings.SORT.index();
                     UiSettings.SORT.set((n + (b == 1 ? 2 : 1)) % 3);
                     scroll = 0;
-                    pageAt = System.nanoTime();
+                    pageAt = com.zlorbie788.zeus.core.Clock.nanoTime();
                 }, "Sort the modules: category order, the ones you use most first, or A to Z. Click to change (right click goes back).");
                 cur = sx - K(10);
             }
@@ -1347,7 +1431,7 @@ public final class ZeusScreen extends Screen {
                         hit(cx, ty + K(3), sw[i], th - K(6), b -> {
                             filter = idx;
                             scroll = 0;
-                            pageAt = System.nanoTime();
+                            pageAt = com.zlorbie788.zeus.core.Clock.nanoTime();
                         }, idx == 0 ? "Show every module" : idx == 1 ? "Only the modules that are on" : "Only the modules that are off");
                         cx += sw[i];
                     }
@@ -1372,7 +1456,7 @@ public final class ZeusScreen extends Screen {
         } else if (shown.isEmpty() && !(favPage && !Usage.recent().isEmpty())) {
             drawEmpty(g, top, viewH, bl, q, activePage, favPage);
         } else {
-            float since = (System.nanoTime() - pageAt) / 1e9f;
+            float since = (com.zlorbie788.zeus.core.Clock.nanoTime() - pageAt) / 1e9f;
             y = drawModules(g, shown, y, dt, bl, bl2, since);
             if (favPage) {
                 List<Module> recent = Usage.recent();
@@ -1595,12 +1679,12 @@ public final class ZeusScreen extends Screen {
             drawSwitchD(g, sx, cy - sh / 2, sw, sh, on, bl);
             Long burstAt = BURSTS.get(m.id);
             if (burstAt != null) {
-                float bp = (System.nanoTime() - burstAt) / 0.6e9f;
+                float bp = (com.zlorbie788.zeus.core.Clock.nanoTime() - burstAt) / 0.6e9f;
                 if (bp >= 1f) BURSTS.remove(m.id);
                 else Thunder.burst(g, sx + sw * 0.75f, cy, Math.max(36f, K(80)), bp, Math.max(1f, k));
             }
             hit(sx - K(4), y + K(2), sw + K(8), rowH - K(4), b -> {
-                if (!m.enabled()) BURSTS.put(m.id, System.nanoTime());
+                if (!m.enabled()) BURSTS.put(m.id, com.zlorbie788.zeus.core.Clock.nanoTime());
                 m.toggle();
             }, "Switch " + m.name + (m.enabled() ? " off" : " on"));
             cur = sx - K(14);
@@ -1664,7 +1748,18 @@ public final class ZeusScreen extends Screen {
         }
         int descCy = cy + K(13);
         if (m.error != null) tx(g, Ty.fit("Switched off: " + m.error, textRight - textLeft, tp(13.5), Ty.REG), textLeft, descCy, 13.5, Ty.REG, 0xFFFF7B7B);
-        else tx(g, Ty.fit(m.desc, textRight - textLeft, tp(13.5), Ty.REG), textLeft, descCy, 13.5, Ty.REG, cDim());
+        else {
+            // a search that found this module by one of its settings says which one
+            String hit = settingHit(m, query());
+            if (!hit.isEmpty()) {
+                String lead = "Setting: " + hit;
+                int lw = tw(lead, 13.5, Ty.SEMI);
+                tx(g, lead, textLeft, descCy, 13.5, Ty.SEMI, 0xFF8CC4FF);
+                tx(g, Ty.fit("  \u00b7  " + m.desc, textRight - textLeft - lw, tp(13.5), Ty.REG), textLeft + lw, descCy, 13.5, Ty.REG, cDim());
+            } else {
+                tx(g, Ty.fit(m.desc, textRight - textLeft, tp(13.5), Ty.REG), textLeft, descCy, 13.5, Ty.REG, cDim());
+            }
+        }
 
         if (ee > 0.02f && ax != null) {
             g.enableScissor(x, y + rowH, x + w, y + h);
@@ -1728,7 +1823,7 @@ public final class ZeusScreen extends Screen {
         if (s instanceof Setting.Choice c) return chipsFit(c, cw) ? K(68) : K(44);
         if (s instanceof Setting.Pick p) return K(32) + pickRows(p, cw) * K(36);
         if (s instanceof Setting.Text) return K(48);
-        if (s instanceof Setting.Action) return K(48);
+        if (s instanceof Setting.Action a) return a.primary ? K(78) : K(48);
         if (s instanceof Setting.Info info) {
             int n = Math.min(info.lines().size(), 10);
             return K(34) + Math.max(1, n) * K(19) + (info.lines().size() > 10 ? K(19) : 0) + K(8);
@@ -1911,6 +2006,22 @@ public final class ZeusScreen extends Screen {
                 field.setValue(t.get());
                 focusField();
             }, null);
+        } else if (s instanceof Setting.Action a && a.primary) {
+            // A wide, bright call-to-action with a gently breathing glow so it cannot be missed.
+            int ch = K(62);
+            int cy = y + h / 2;
+            int top = cy - ch / 2;
+            boolean hb = hov(x, top, w, ch) && inViewD();
+            float pulse = 0.5f + 0.5f * (float) Math.sin(com.zlorbie788.zeus.core.Clock.nanoTime() / 1e9 * 2.4);
+            Ty.glow(g, x, top, w, ch, K(14), K(10), Draw.rgba(bl, (hb ? 0.55f : 0.30f) + 0.15f * pulse));
+            Ty.fill(g, x, top, w, ch, K(14), hb ? Draw.rgba(bl, 0.95f) : Draw.rgba(bl, 0.78f));
+            Ty.fill(g, x + K(2), top + K(2), w - K(4), ch / 2 - K(2), K(12), 0x22FFFFFF);
+            Ty.ring(g, x, top, w, ch, K(14), K(2), Draw.rgba(0xFFFFFFFF, hb ? 0.95f : 0.55f + 0.3f * pulse));
+            String title = a.name.toUpperCase(Locale.ROOT) + "  >";
+            String sub = a.detail == null ? a.desc : a.detail.get();
+            txC(g, title, x + w / 2, cy - (sub == null || sub.isEmpty() ? 0 : K(9)), 17, Ty.XBOLD, 0xFFFFFFFF);
+            if (sub != null && !sub.isEmpty()) txC(g, Ty.fit(sub, w - K(24), tp(12), Ty.MED), x + w / 2, cy + K(14), 12, Ty.MED, 0xE6FFFFFF);
+            hit(x, top, w, ch, k2 -> a.fire(), a.desc);
         } else if (s instanceof Setting.Action a) {
             int ch = K(34);
             int cy = y + h / 2;
@@ -2038,7 +2149,7 @@ public final class ZeusScreen extends Screen {
 
     private int rowH(Setting s) {
         if (s instanceof Setting.Num) return 26;
-        if (s instanceof Setting.Action) return 24;
+        if (s instanceof Setting.Action a) return a.primary ? 36 : 24;
         if (s instanceof Setting.Pick p) return 20 + Math.max(1, p.rows) * 17 + 2;
         if (s instanceof Setting.Info info) {
             int n = Math.min(info.lines().size(), 10);
@@ -2127,6 +2238,16 @@ public final class ZeusScreen extends Screen {
                 field.setValue(t.get());
                 focusField();
             }, null);
+        } else if (s instanceof Setting.Action a && a.primary) {
+            boolean hb = hov(x, y + 2, w, 32) && inView(top, viewH);
+            float pulse = 0.5f + 0.5f * (float) Math.sin(com.zlorbie788.zeus.core.Clock.nanoTime() / 1e9 * 2.4);
+            Draw.glow(g, x, y + 2, w, 32, 8, Draw.rgba(col, 0.35f + 0.2f * pulse), 6, 0.6f);
+            Draw.rrect(g, x, y + 2, w, 32, 8, Draw.rgba(col, hb ? 0.95f : 0.75f));
+            Draw.rrectLine(g, x, y + 2, w, 32, 8, Draw.rgba(0xFFFFFFFF, hb ? 0.95f : 0.5f + 0.3f * pulse));
+            Draw.boldCenter(g, a.name.toUpperCase(Locale.ROOT) + "  >", x + w / 2, y + 7, 0xFFFFFFFF);
+            String sub = a.detail == null ? "" : a.detail.get();
+            if (!sub.isEmpty()) Draw.textCenter(g, Draw.fit(sub, w - 10), x + w / 2, y + 20, 0xE6FFFFFF);
+            hit(x, y + 2, w, 32, k -> a.fire(), a.desc);
         } else if (s instanceof Setting.Action a) {
             int bw = Draw.width(a.name) + 20;
             boolean hb = hov(x, y + 2, bw, 18) && inView(top, viewH);
@@ -2308,7 +2429,7 @@ public final class ZeusScreen extends Screen {
         drawWinHeader(g, bl, bl2);
 
         int sortMode = UiSettings.SORT.index();
-        long nowNs = System.nanoTime();
+        long nowNs = com.zlorbie788.zeus.core.Clock.nanoTime();
         String defsKey = q + "|" + sortMode;
         if (defsCache == null || !defsKey.equals(defsCacheKey) || nowNs - defsCacheAt > 120_000_000L) {
             List<WinDef> built = new ArrayList<>();
@@ -2500,7 +2621,7 @@ public final class ZeusScreen extends Screen {
             ORDER.clear();
             ORDER.add(UiState.FAVOURITES);
             for (Category c : Category.values()) ORDER.add(c.name());
-            pageAt = System.nanoTime();
+            pageAt = com.zlorbie788.zeus.core.Clock.nanoTime();
         }, "Tidy up: put every window back into the neat grid");
         cur -= gap;
 
@@ -2547,7 +2668,7 @@ public final class ZeusScreen extends Screen {
                 int n = UiSettings.SORT.index();
                 UiSettings.SORT.set((n + (b == 1 ? 2 : 1)) % 3);
                 scroll = 0;
-                pageAt = System.nanoTime();
+                pageAt = com.zlorbie788.zeus.core.Clock.nanoTime();
             }, "Sort the modules: category order, the ones you use most first, or A to Z. Click to change.");
             cur = sx - K(12);
             room = cur - (verEnd + K(30));
@@ -2626,7 +2747,7 @@ public final class ZeusScreen extends Screen {
         listTop = top;
         listBottom = top + bodyH;
         int ry = top + K(4) - Math.round(win.scroll);
-        float entered = (System.nanoTime() - pageAt) / 1e9f;
+        float entered = (com.zlorbie788.zeus.core.Clock.nanoTime() - pageAt) / 1e9f;
         int rowIndex = 0;
         boolean winHot = hov(x, top, ww, bodyH);
         if (mods.isEmpty()) {
@@ -2697,7 +2818,7 @@ public final class ZeusScreen extends Screen {
             drawSwitchD(g, sx, cy - sh / 2, sw, sh, on, bl);
             Long burstAt = BURSTS.get(m.id);
             if (burstAt != null) {
-                float bp = (System.nanoTime() - burstAt) / 0.6e9f;
+                float bp = (com.zlorbie788.zeus.core.Clock.nanoTime() - burstAt) / 0.6e9f;
                 if (bp >= 1f) BURSTS.remove(m.id);
                 else Thunder.burst(g, sx + sw * 0.75f, cy, K(40), bp, 1f);
             }
@@ -2731,7 +2852,7 @@ public final class ZeusScreen extends Screen {
                     openPopup(m);
                     return;
                 }
-                if (!m.enabled()) BURSTS.put(m.id, System.nanoTime());
+                if (!m.enabled()) BURSTS.put(m.id, com.zlorbie788.zeus.core.Clock.nanoTime());
                 m.toggle();
             }, "Switch " + m.name + (m.enabled() ? " off" : " on"));
             if (!m.settings().isEmpty()) hit(sx - K(32), iy, K(26), ih, bt -> openPopup(m), "Settings of " + m.name);

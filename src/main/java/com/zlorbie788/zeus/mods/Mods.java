@@ -10,12 +10,14 @@ public final class Mods {
 
     public static List<Module> create() {
         List<Module> m = new ArrayList<>();
+        m.add(new NameTags());
+        m.add(new ArmorBreaker());
         m.add(new Combat.KillAura());
         m.add(new AdvancedFeatures.MultiAura());
         m.add(new CrystalAnchor.CrystalAura());
+        m.add(new DamagePreview());
         m.add(new CrystalAnchor.AnchorAura());
         m.add(new Combat.AimAssist());
-        m.add(new Combat.AttributeSwap());
         m.add(new Combat.AutoCombo());
         m.add(new AutomationPlus.SwordPvpCoach());
         m.add(new Macros.CrystalMacro());
@@ -214,7 +216,7 @@ public final class Mods {
         m.add(new HudExtra.Nearby());
         m.add(new HudExtra.Ticks());
         m.add(new HudExtra.DynamicIsland());
-        m.add(new Exposure());
+        m.add(new Oracle());
         m.add(new HandModel());
         m.add(new Reticle());
         m.add(new PriceTags());
