@@ -235,6 +235,7 @@ public final class KeybindScreen extends Screen {
     /** Waiting for the key that should open the Zeus menu. */
     private boolean listeningMenu;
     private int[] menuBtn;
+    private long lastNs;
     /** With a key picked: make it the key that opens the Zeus menu. */
     private int[] setMenuBtn;
 
@@ -307,7 +308,10 @@ public final class KeybindScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mx, int my, float partialTick) {
-        float dt = Math.min(0.1f, minecraft.getDeltaTracker().getRealtimeDeltaTicks() / 20f);
+        // timed by the Zeus clock like the other screens (it follows the film clock when recording)
+        long nowNs = com.zlorbie788.zeus.core.Clock.nanoTime();
+        float dt = lastNs == 0L ? 0f : Math.max(0f, Math.min(0.1f, (nowNs - lastNs) / 1e9f));
+        lastNs = nowNs;
         t += dt;
         pressAnim = Math.max(0, pressAnim - dt * 4);
         refresh();

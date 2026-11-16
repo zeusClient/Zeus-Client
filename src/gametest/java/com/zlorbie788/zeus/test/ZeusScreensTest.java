@@ -443,6 +443,29 @@ public class ZeusScreensTest implements FabricClientGameTest {
             filmButterfly(ctx);
             return;
         }
+        if ("shorts".equals(part)) {
+            filmShorts(ctx);
+            return;
+        }
+        if ("shortskeys".equals(part)) {
+            // the keyboard at GUI scale 2: the key list stays below the board when a key is pressed
+            ctx.getInput().resizeWindow(1920, 1080);
+            ctx.runOnClient(c -> {
+                c.options.guiScale().set(2);
+                c.resizeDisplay();
+            });
+            ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual = System.nanoTime());
+            ctx.setScreen(() -> new com.zlorbie788.zeus.ui.KeybindScreen(null));
+            int[] keys = {GLFW.GLFW_KEY_G, GLFW.GLFW_KEY_U, GLFW.GLFW_KEY_K, GLFW.GLFW_KEY_N, GLFW.GLFW_KEY_EQUAL, GLFW.GLFW_KEY_3, GLFW.GLFW_KEY_Z};
+            for (int i = 0; i < 95; i++) {
+                if (i >= 15 && (i - 15) % 11 == 0 && (i - 15) / 11 < keys.length) ctx.getInput().pressKey(keys[(i - 15) / 11]);
+                ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual += FRAME);
+                ctx.waitTicks(1);
+                ctx.takeScreenshot(String.format("film_sh_keys2_%04d", i));
+            }
+            ctx.setScreen(() -> null);
+            return;
+        }
         // the main menu building itself
         ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual = System.nanoTime());
         ctx.setScreen(ZeusTitleScreen::new);
@@ -547,6 +570,89 @@ public class ZeusScreensTest implements FabricClientGameTest {
             sp.getServer().runCommand("time set midnight");
             ctx.waitTicks(10);
             shoot(ctx, "night_galaxy", 75);
+        }
+    }
+
+    /** ZEUS_FILM=shorts: every scene of the showcase short, at a locked 30 frames a second. */
+    private static void filmShorts(ClientGameTestContext ctx) {
+        ctx.getInput().resizeWindow(1920, 1080);
+        ctx.runOnClient(c -> {
+            c.options.guiScale().set(0);
+            c.resizeDisplay();
+        });
+        ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual = System.nanoTime());
+        // the main menu
+        ctx.setScreen(ZeusTitleScreen::new);
+        shoot(ctx, "sh_title", 150);
+        // the module panel
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.ZeusScreen());
+        shoot(ctx, "sh_panel", 120);
+        // the RGB keyboard, with keys pressed now and then
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.KeybindScreen(null));
+        int[] keys = {GLFW.GLFW_KEY_G, GLFW.GLFW_KEY_U, GLFW.GLFW_KEY_K, GLFW.GLFW_KEY_N, GLFW.GLFW_KEY_EQUAL, GLFW.GLFW_KEY_3, GLFW.GLFW_KEY_Z};
+        for (int i = 0; i < 95; i++) {
+            if (i >= 15 && (i - 15) % 11 == 0 && (i - 15) / 11 < keys.length) ctx.getInput().pressKey(keys[(i - 15) / 11]);
+            ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual += FRAME);
+            ctx.waitTicks(1);
+            ctx.takeScreenshot(String.format("film_sh_keys_%04d", i));
+        }
+        // crates: the screen, picking crates, the collection
+        ctx.runOnClient(c -> {
+            Crates.setQuick(true);
+            Crates.setMulti(1);
+            Crates.setAuto(false);
+        });
+        ctx.setScreen(() -> new CratesScreen(null));
+        shoot(ctx, "sh_crates", 50);
+        for (int i : new int[] {2, 3}) {
+            ctx.runOnClient(c -> { set(c.screen, "sel", i); set(c.screen, "selAt", screenNow(c)); });
+            shoot(ctx, "sh_crates_sel" + i, 35);
+        }
+        // three crates at once, from the click to the knives
+        ctx.runOnClient(c -> {
+            Crates.setMulti(3);
+            open(c, "hades");
+        });
+        shoot(ctx, "sh_multi", 175);
+        ctx.runOnClient(c -> set(c.screen, "opening", null));
+        // a Chroma drop's reveal
+        ctx.runOnClient(c -> startOpening(c, "nyx", "chroma_karambit", Crates.Rarity.CHROMA, true));
+        shoot(ctx, "sh_chroma", 80);
+        ctx.runOnClient(c -> set(c.screen, "opening", null));
+        // inspecting a knife
+        ctx.runOnClient(c -> {
+            try {
+                Method m = CratesScreen.class.getDeclaredMethod("openInspect", Crates.Item.class);
+                m.setAccessible(true);
+                m.invoke(c.screen, new Crates.Item("chroma_phoenix", Crates.Rarity.CHROMA));
+            } catch (ReflectiveOperationException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        shoot(ctx, "sh_inspect", 75);
+        ctx.runOnClient(c -> set(c.screen, "inspect", null));
+        ctx.runOnClient(c -> { set(c.screen, "prevTab", 0); set(c.screen, "tab", 1); set(c.screen, "tabAt", screenNow(c)); });
+        shoot(ctx, "sh_coll", 50);
+        ctx.runOnClient(c -> Crates.setMulti(1));
+        ctx.setScreen(() -> null);
+        // knives in hand
+        try (TestSingleplayerContext sp = ctx.worldBuilder().create()) {
+            sp.getClientWorld().waitForChunksRender();
+            sp.getServer().runCommand("time set 1000");
+            sp.getServer().runCommand("gamerule advance_time false");
+            ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual = System.nanoTime());
+            ctx.runOnClient(c -> KnifeSwing.equipHd(Crates.hdOf("chroma_butterfly")));
+            shoot(ctx, "sh_bf_draw", 25);
+            ctx.runOnClient(c -> KnifeSwing.pressTrick());
+            shoot(ctx, "sh_bf_trick", 110);
+            ctx.runOnClient(c -> KnifeSwing.equipHd(Crates.hdOf("chroma_karambit")));
+            shoot(ctx, "sh_kb_draw", 20);
+            ctx.runOnClient(c -> KnifeSwing.pressTrick());
+            shoot(ctx, "sh_kb_trick", 100);
+            ctx.runOnClient(c -> KnifeSwing.equipHd(Crates.hdOf("chroma_phoenix")));
+            ctx.runOnClient(c -> KnifeSwing.pressTrick());
+            shoot(ctx, "sh_ph_trick", 100);
+            ctx.setScreen(() -> null);
         }
     }
 
