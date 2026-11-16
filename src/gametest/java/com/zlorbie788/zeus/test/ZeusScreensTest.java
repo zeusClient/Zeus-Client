@@ -26,6 +26,13 @@ public class ZeusScreensTest implements FabricClientGameTest {
     @Override
     public void runTest(ClientGameTestContext ctx) {
         ctx.getInput().resizeWindow(1920, 1080);
+        if (System.getenv("ZEUS_BENCH") != null) {
+            CratesBench.run(ctx);
+            ctx.runOnClient(c -> UiSettings.MENU.set(false));
+            ctx.setScreen(TitleScreen::new);
+            ctx.waitTicks(5);
+            return;
+        }
         if (System.getenv("ZEUS_FILM") != null) {
             film(ctx, System.getenv("ZEUS_FILM"));
             ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual = -1L);
@@ -37,34 +44,7 @@ public class ZeusScreensTest implements FabricClientGameTest {
         // the intro video plays first; wait for the Zeus menu itself, then let its buttons slide in
         ctx.waitFor(c -> c.screen instanceof ZeusTitleScreen, 20 * 60);
         ctx.runOnClient(c -> grant());
-        run(ctx, 3.0f);
-        ctx.takeScreenshot("title_1080");
-        // unroll the news scroll and photograph it
-        ctx.runOnClient(c -> {
-            try {
-                Field nf = c.screen.getClass().getDeclaredField("news");
-                nf.setAccessible(true);
-                Object news = nf.get(c.screen);
-                set(news, "rolled", false);
-            } catch (ReflectiveOperationException e) {
-                throw new RuntimeException(e);
-            }
-        });
-        run(ctx, 2.0f);
-        ctx.takeScreenshot("title_news_1080");
-        ctx.getInput().resizeWindow(854, 480);
-        run(ctx, 0.6f);
-        ctx.takeScreenshot("title_854");
-        ctx.getInput().resizeWindow(1920, 1080);
-        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.ZeusAboutScreen(new ZeusTitleScreen()));
-        run(ctx, 0.8f);
-        ctx.takeScreenshot("about_1080");
-        ctx.setScreen(() -> com.zlorbie788.zeus.ui.KeybindScreen.forMenuKey(null));
-        run(ctx, 0.5f);
-        ctx.takeScreenshot("keys_menu_listen");
-        ctx.setScreen(ZeusTitleScreen::new);
-        run(ctx, 1.0f);
-
+        if (System.getenv("ZEUS_CRATES_ONLY") == null) titleShots(ctx);
         ctx.runOnClient(c -> grant());
 
         int[][] sizes = {{1920, 1080, 0}, {1920, 1080, 2}, {854, 480, 0}};
@@ -124,6 +104,32 @@ public class ZeusScreensTest implements FabricClientGameTest {
                 ctx.takeScreenshot("open_" + tag + "_" + Math.round(a * 100));
             }
             ctx.runOnClient(c -> set(c.screen, "opening", null));
+            // three crates at once: the stacked reels, then the knives side by side
+            ctx.runOnClient(c -> {
+                Crates.setMulti(3);
+                open(c, "tempest");
+            });
+            run(ctx, 2.6f);
+            ctx.takeScreenshot("multi_reel_" + tag);
+            ctx.runOnClient(c -> {
+                try {
+                    Object op = CratesScreen.class.getDeclaredField("opening");
+                    java.lang.reflect.Field f = (java.lang.reflect.Field) op;
+                    f.setAccessible(true);
+                    Object o = f.get(c.screen);
+                    Method sk = o.getClass().getDeclaredMethod("skip");
+                    sk.setAccessible(true);
+                    sk.invoke(o);
+                } catch (ReflectiveOperationException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            run(ctx, 1.8f);
+            ctx.takeScreenshot("multi_reveal_" + tag);
+            ctx.runOnClient(c -> {
+                set(c.screen, "opening", null);
+                Crates.setMulti(1);
+            });
             // a Chroma drop, straight to its reveal
             ctx.runOnClient(c -> {
                 try {
@@ -132,7 +138,7 @@ public class ZeusScreensTest implements FabricClientGameTest {
                     Class<?> oc = Class.forName("com.zlorbie788.zeus.ui.CratesScreen$Opening");
                     var ctor = oc.getDeclaredConstructors()[0];
                     ctor.setAccessible(true);
-                    Object op = ctor.newInstance(c.screen, cr, res, c.getWindow().getGuiScaledWidth() / 2, c.getWindow().getGuiScaledHeight() / 2, 80);
+                    Object op = ctor.newInstance(c.screen, cr, java.util.List.of(res), c.getWindow().getGuiScaledWidth() / 2, c.getWindow().getGuiScaledHeight() / 2, 80);
                     set(c.screen, "opening", op);
                     Method sk = oc.getDeclaredMethod("skip");
                     sk.setAccessible(true);
@@ -159,6 +165,27 @@ public class ZeusScreensTest implements FabricClientGameTest {
             ctx.takeScreenshot("inspect_" + tag);
             ctx.setScreen(() -> null);
             ctx.waitTicks(4);
+        }
+        // ZEUS_CRATES_ONLY=1: stop after the Crates screens, for quick UI checks
+        if (System.getenv("ZEUS_CRATES_ONLY") != null) {
+            // the keybinds keyboard, with a couple of key presses rippling out
+            ctx.getInput().resizeWindow(1920, 1080);
+            ctx.runOnClient(c -> {
+                c.options.guiScale().set(0);
+                c.resizeDisplay();
+            });
+            ctx.setScreen(() -> new com.zlorbie788.zeus.ui.KeybindScreen(null));
+            run(ctx, 0.8f);
+            ctx.takeScreenshot("keys_rgb_1920");
+            ctx.getInput().pressKey(org.lwjgl.glfw.GLFW.GLFW_KEY_G);
+            run(ctx, 0.25f);
+            ctx.getInput().pressKey(org.lwjgl.glfw.GLFW.GLFW_KEY_P);
+            run(ctx, 0.2f);
+            ctx.takeScreenshot("keys_ripple_1920");
+            ctx.runOnClient(c -> UiSettings.MENU.set(false));
+            ctx.setScreen(TitleScreen::new);
+            ctx.waitTicks(5);
+            return;
         }
 
         ctx.getInput().resizeWindow(1920, 1080);
@@ -391,7 +418,7 @@ public class ZeusScreensTest implements FabricClientGameTest {
             Class<?> oc = Class.forName("com.zlorbie788.zeus.ui.CratesScreen$Opening");
             var ctor = oc.getDeclaredConstructors()[0];
             ctor.setAccessible(true);
-            Object op = ctor.newInstance(c.screen, cr, res, c.getWindow().getGuiScaledWidth() / 2 - 40, c.getWindow().getGuiScaledHeight() / 2, 70);
+            Object op = ctor.newInstance(c.screen, cr, java.util.List.of(res), c.getWindow().getGuiScaledWidth() / 2 - 40, c.getWindow().getGuiScaledHeight() / 2, 70);
             set(c.screen, "opening", op);
             if (skip) {
                 Method sk = oc.getDeclaredMethod("skip");
@@ -410,6 +437,37 @@ public class ZeusScreensTest implements FabricClientGameTest {
         run(ctx, 2.0f);
         if ("world".equals(part)) {
             filmWorld(ctx);
+            return;
+        }
+        if ("butterfly".equals(part)) {
+            filmButterfly(ctx);
+            return;
+        }
+        if ("shorts".equals(part)) {
+            filmShorts(ctx);
+            return;
+        }
+        if ("edit".equals(part)) {
+            filmEdit(ctx);
+            return;
+        }
+        if ("shortskeys".equals(part)) {
+            // the keyboard at GUI scale 2: the key list stays below the board when a key is pressed
+            ctx.getInput().resizeWindow(1920, 1080);
+            ctx.runOnClient(c -> {
+                c.options.guiScale().set(2);
+                c.resizeDisplay();
+            });
+            ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual = System.nanoTime());
+            ctx.setScreen(() -> new com.zlorbie788.zeus.ui.KeybindScreen(null));
+            int[] keys = {GLFW.GLFW_KEY_G, GLFW.GLFW_KEY_U, GLFW.GLFW_KEY_K, GLFW.GLFW_KEY_N, GLFW.GLFW_KEY_EQUAL, GLFW.GLFW_KEY_3, GLFW.GLFW_KEY_Z};
+            for (int i = 0; i < 95; i++) {
+                if (i >= 15 && (i - 15) % 11 == 0 && (i - 15) / 11 < keys.length) ctx.getInput().pressKey(keys[(i - 15) / 11]);
+                ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual += FRAME);
+                ctx.waitTicks(1);
+                ctx.takeScreenshot(String.format("film_sh_keys2_%04d", i));
+            }
+            ctx.setScreen(() -> null);
             return;
         }
         // the main menu building itself
@@ -519,8 +577,218 @@ public class ZeusScreensTest implements FabricClientGameTest {
         }
     }
 
+    /** ZEUS_FILM=shorts: every scene of the showcase short, at a locked 30 frames a second. */
+    private static void filmShorts(ClientGameTestContext ctx) {
+        ctx.getInput().resizeWindow(1920, 1080);
+        ctx.runOnClient(c -> {
+            c.options.guiScale().set(0);
+            c.resizeDisplay();
+        });
+        ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual = System.nanoTime());
+        // the main menu
+        ctx.setScreen(ZeusTitleScreen::new);
+        shoot(ctx, "sh_title", 150);
+        // the module panel
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.ZeusScreen());
+        shoot(ctx, "sh_panel", 120);
+        // the RGB keyboard, with keys pressed now and then
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.KeybindScreen(null));
+        int[] keys = {GLFW.GLFW_KEY_G, GLFW.GLFW_KEY_U, GLFW.GLFW_KEY_K, GLFW.GLFW_KEY_N, GLFW.GLFW_KEY_EQUAL, GLFW.GLFW_KEY_3, GLFW.GLFW_KEY_Z};
+        for (int i = 0; i < 95; i++) {
+            if (i >= 15 && (i - 15) % 11 == 0 && (i - 15) / 11 < keys.length) ctx.getInput().pressKey(keys[(i - 15) / 11]);
+            ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual += FRAME);
+            ctx.waitTicks(1);
+            ctx.takeScreenshot(String.format("film_sh_keys_%04d", i));
+        }
+        // crates: the screen, picking crates, the collection
+        ctx.runOnClient(c -> {
+            Crates.setQuick(true);
+            Crates.setMulti(1);
+            Crates.setAuto(false);
+        });
+        ctx.setScreen(() -> new CratesScreen(null));
+        shoot(ctx, "sh_crates", 50);
+        for (int i : new int[] {2, 3}) {
+            ctx.runOnClient(c -> { set(c.screen, "sel", i); set(c.screen, "selAt", screenNow(c)); });
+            shoot(ctx, "sh_crates_sel" + i, 35);
+        }
+        // three crates at once, from the click to the knives
+        ctx.runOnClient(c -> {
+            Crates.setMulti(3);
+            open(c, "hades");
+        });
+        shoot(ctx, "sh_multi", 175);
+        ctx.runOnClient(c -> set(c.screen, "opening", null));
+        // a Chroma drop's reveal
+        ctx.runOnClient(c -> startOpening(c, "nyx", "chroma_karambit", Crates.Rarity.CHROMA, true));
+        shoot(ctx, "sh_chroma", 80);
+        ctx.runOnClient(c -> set(c.screen, "opening", null));
+        // inspecting a knife
+        ctx.runOnClient(c -> {
+            try {
+                Method m = CratesScreen.class.getDeclaredMethod("openInspect", Crates.Item.class);
+                m.setAccessible(true);
+                m.invoke(c.screen, new Crates.Item("chroma_phoenix", Crates.Rarity.CHROMA));
+            } catch (ReflectiveOperationException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        shoot(ctx, "sh_inspect", 75);
+        ctx.runOnClient(c -> set(c.screen, "inspect", null));
+        ctx.runOnClient(c -> { set(c.screen, "prevTab", 0); set(c.screen, "tab", 1); set(c.screen, "tabAt", screenNow(c)); });
+        shoot(ctx, "sh_coll", 50);
+        ctx.runOnClient(c -> Crates.setMulti(1));
+        ctx.setScreen(() -> null);
+        // knives in hand
+        try (TestSingleplayerContext sp = ctx.worldBuilder().create()) {
+            sp.getClientWorld().waitForChunksRender();
+            sp.getServer().runCommand("time set 1000");
+            sp.getServer().runCommand("gamerule advance_time false");
+            ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual = System.nanoTime());
+            ctx.runOnClient(c -> KnifeSwing.equipHd(Crates.hdOf("chroma_butterfly")));
+            shoot(ctx, "sh_bf_draw", 25);
+            ctx.runOnClient(c -> KnifeSwing.pressTrick());
+            shoot(ctx, "sh_bf_trick", 110);
+            ctx.runOnClient(c -> KnifeSwing.equipHd(Crates.hdOf("chroma_karambit")));
+            shoot(ctx, "sh_kb_draw", 20);
+            ctx.runOnClient(c -> KnifeSwing.pressTrick());
+            shoot(ctx, "sh_kb_trick", 100);
+            ctx.runOnClient(c -> KnifeSwing.equipHd(Crates.hdOf("chroma_phoenix")));
+            ctx.runOnClient(c -> KnifeSwing.pressTrick());
+            shoot(ctx, "sh_ph_trick", 100);
+            ctx.setScreen(() -> null);
+        }
+    }
+
+    /** Switches a module on or off by its id. */
+    private static void mod(String id, boolean on) {
+        com.zlorbie788.zeus.core.Module m = com.zlorbie788.zeus.core.Zeus.get(id);
+        if (m != null) m.setEnabled(on);
+    }
+
+    /** Turns the camera a little every frame while filming, for moving shots. */
+    private static void shootTurning(ClientGameTestContext ctx, String name, int n, float yawStep, float pitchStep) {
+        for (int i = 0; i < n; i++) {
+            ctx.runOnClient(c -> {
+                com.zlorbie788.zeus.core.Clock.manual += FRAME;
+                if (c.player != null) {
+                    c.player.setYRot(c.player.getYRot() + yawStep);
+                    c.player.setXRot(c.player.getXRot() + pitchStep);
+                }
+            });
+            ctx.waitTicks(1);
+            ctx.takeScreenshot(String.format("film_%s_%04d", name, i));
+        }
+    }
+
+    /** ZEUS_FILM=edit: the rest of the client for the fast edit: themes, screens, HUD, skies, the pause menu. */
+    private static void filmEdit(ClientGameTestContext ctx) {
+        ctx.getInput().resizeWindow(1920, 1080);
+        ctx.runOnClient(c -> {
+            c.options.guiScale().set(0);
+            c.resizeDisplay();
+        });
+        ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual = System.nanoTime());
+        // the panel in the rainbow theme, then the colour palettes
+        ctx.runOnClient(c -> UiSettings.ACCENT.set(com.zlorbie788.zeus.ui.Themes.RAINBOW));
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.ZeusScreen());
+        shoot(ctx, "ed_rainbow", 75);
+        ctx.runOnClient(c -> UiSettings.ACCENT.set(0));
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.PaletteScreen(null));
+        shoot(ctx, "ed_palette", 50);
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.ZeusAboutScreen(null));
+        shoot(ctx, "ed_about", 50);
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.ZeusCreditsScreen(null));
+        shoot(ctx, "ed_credits", 50);
+        ctx.setScreen(() -> null);
+        ctx.runOnClient(c -> c.options.renderDistance().set(5));
+        try (TestSingleplayerContext sp = ctx.worldBuilder().setUseConsistentSettings(false).create()) {
+            // real terrain draws slowly without a graphics card: give it a fixed while instead of waiting for every chunk
+            ctx.waitTicks(400);
+            sp.getServer().runCommand("gamerule advance_time false");
+            sp.getServer().runCommand("gamerule advance_weather false");
+            sp.getServer().runCommand("weather clear");
+            sp.getServer().runCommand("gamemode survival @a");
+            sp.getServer().runCommand("time set 1000");
+            for (String[] a : new String[][] {{"head", "diamond_helmet"}, {"chest", "diamond_chestplate"}, {"legs", "diamond_leggings"}, {"feet", "diamond_boots"}})
+                sp.getServer().runCommand("item replace entity @a armor." + a[0] + " with minecraft:" + a[1]);
+            sp.getServer().runCommand("item replace entity @a weapon.offhand with minecraft:totem_of_undying");
+            sp.getServer().runCommand("effect give @a minecraft:speed infinite 1 true");
+            sp.getServer().runCommand("effect give @a minecraft:strength infinite 0 true");
+            sp.getServer().runCommand("effect give @a minecraft:night_vision infinite 0 true");
+            sp.getServer().runCommand("effect give @a minecraft:resistance infinite 4 true");
+            ctx.waitTicks(20);
+            for (String id : new String[] {"armorhud", "potionhud", "keystrokes", "compass", "coordinates", "watermark", "customcrosshair", "blockoutline"}) {
+                String m = id;
+                ctx.runOnClient(c -> mod(m, true));
+            }
+            ctx.runOnClient(c -> {
+                com.zlorbie788.zeus.core.Clock.manual = System.nanoTime();
+                c.player.setXRot(8f);
+            });
+            ctx.waitTicks(10);
+            // the HUD in a sunny world, then its editor
+            shootTurning(ctx, "ed_hud", 70, 0.35f, 0f);
+            ctx.setScreen(() -> new com.zlorbie788.zeus.ui.HudEditorScreen(null));
+            shoot(ctx, "ed_hudedit", 55);
+            ctx.setScreen(() -> null);
+            // a knife with the HUD round it
+            ctx.runOnClient(c -> KnifeSwing.equipHd(Crates.hdOf("tac_lightning")));
+            shoot(ctx, "ed_knifehud_draw", 15);
+            ctx.runOnClient(c -> KnifeSwing.pressTrick());
+            shootTurning(ctx, "ed_knifehud", 80, 0.25f, 0f);
+            // the pause menu
+            ctx.setScreen(() -> new net.minecraft.client.gui.screens.PauseScreen(true));
+            shoot(ctx, "ed_pause", 45);
+            ctx.setScreen(() -> null);
+            // night: the Atmosphere sky, looking up and turning
+            for (String id : new String[] {"armorhud", "potionhud", "keystrokes", "compass", "coordinates", "customcrosshair"}) {
+                String m = id;
+                ctx.runOnClient(c -> mod(m, false));
+            }
+            sp.getServer().runCommand("effect clear @a minecraft:night_vision");
+            sp.getServer().runCommand("time set 18000");
+            ctx.runOnClient(c -> {
+                mod("atmosphere", true);
+                c.options.hideGui = true;
+                c.player.setXRot(-32f);
+            });
+            ctx.waitTicks(20);
+            shootTurning(ctx, "ed_sky", 110, 0.45f, -0.04f);
+            // sunset with a knife
+            sp.getServer().runCommand("time set 12600");
+            ctx.runOnClient(c -> {
+                c.options.hideGui = false;
+                c.player.setXRot(-4f);
+                KnifeSwing.equipHd(Crates.hdOf("chroma_crystal"));
+            });
+            ctx.waitTicks(10);
+            ctx.runOnClient(c -> KnifeSwing.pressTrick());
+            shootTurning(ctx, "ed_sunset", 85, -0.3f, 0f);
+            ctx.runOnClient(c -> mod("atmosphere", false));
+            ctx.setScreen(() -> null);
+        }
+    }
+
+    /** ZEUS_FILM=butterfly: the butterfly knife in hand, opening and playing two tricks, frame by frame. */
+    private static void filmButterfly(ClientGameTestContext ctx) {
+        try (TestSingleplayerContext sp = ctx.worldBuilder().create()) {
+            sp.getClientWorld().waitForChunksRender();
+            sp.getServer().runCommand("time set 1000");
+            sp.getServer().runCommand("gamerule advance_time false");
+            ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual = System.nanoTime());
+            ctx.runOnClient(c -> KnifeSwing.equipHd(Crates.hdOf("butterfly_fade")));
+            shoot(ctx, "bf_draw", 30);
+            ctx.runOnClient(c -> KnifeSwing.pressTrick());
+            shoot(ctx, "bf_trick1", 110);
+            ctx.runOnClient(c -> { KnifeSwing.nextTrick(); KnifeSwing.pressTrick(); });
+            shoot(ctx, "bf_trick2", 110);
+            ctx.setScreen(() -> null);
+        }
+    }
+
     /** Keeps the game ticking and drawing for this many real seconds. */
-    private static void run(ClientGameTestContext ctx, float seconds) {
+    static void run(ClientGameTestContext ctx, float seconds) {
         long end = System.nanoTime() + (long) (seconds * 1e9);
         while (System.nanoTime() < end) {
             ctx.waitTick();
@@ -606,11 +874,41 @@ public class ZeusScreensTest implements FabricClientGameTest {
         ctx.waitTicks(5);
     }
 
-    private static void grant() {
+    private static void titleShots(ClientGameTestContext ctx) {
+        run(ctx, 3.0f);
+        ctx.takeScreenshot("title_1080");
+        // unroll the news scroll and photograph it
+        ctx.runOnClient(c -> {
+            try {
+                Field nf = c.screen.getClass().getDeclaredField("news");
+                nf.setAccessible(true);
+                Object news = nf.get(c.screen);
+                set(news, "rolled", false);
+            } catch (ReflectiveOperationException e) {
+                throw new RuntimeException(e);
+            }
+        });
+        run(ctx, 2.0f);
+        ctx.takeScreenshot("title_news_1080");
+        ctx.getInput().resizeWindow(854, 480);
+        run(ctx, 0.6f);
+        ctx.takeScreenshot("title_854");
+        ctx.getInput().resizeWindow(1920, 1080);
+        ctx.setScreen(() -> new com.zlorbie788.zeus.ui.ZeusAboutScreen(new ZeusTitleScreen()));
+        run(ctx, 0.8f);
+        ctx.takeScreenshot("about_1080");
+        ctx.setScreen(() -> com.zlorbie788.zeus.ui.KeybindScreen.forMenuKey(null));
+        run(ctx, 0.5f);
+        ctx.takeScreenshot("keys_menu_listen");
+        ctx.setScreen(ZeusTitleScreen::new);
+        run(ctx, 1.0f);
+    }
+
+    static void grant() {
         try {
             Crates.load();
             set(null, Crates.class, "tokens", 42);
-            set(null, Crates.class, "keys", 30);
+            set(null, Crates.class, "keys", 90);
             Field h = Crates.class.getDeclaredField("held");
             h.setAccessible(true);
             Map<String, Integer> held = (Map<String, Integer>) h.get(null);
@@ -637,7 +935,7 @@ public class ZeusScreensTest implements FabricClientGameTest {
         }
     }
 
-    private static void open(Minecraft c, String crate) {
+    static void open(Minecraft c, String crate) {
         try {
             Method m = CratesScreen.class.getDeclaredMethod("startOpening", Crates.Crate.class);
             m.setAccessible(true);
@@ -647,11 +945,11 @@ public class ZeusScreensTest implements FabricClientGameTest {
         }
     }
 
-    private static void set(Object target, String field, Object value) {
+    static void set(Object target, String field, Object value) {
         set(target, target.getClass(), field, value);
     }
 
-    private static void set(Object target, Class<?> cls, String field, Object value) {
+    static void set(Object target, Class<?> cls, String field, Object value) {
         try {
             Field f = cls.getDeclaredField(field);
             f.setAccessible(true);

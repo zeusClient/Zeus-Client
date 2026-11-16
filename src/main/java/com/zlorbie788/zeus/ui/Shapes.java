@@ -22,6 +22,9 @@ public final class Shapes {
 
     private static boolean broken;
 
+    /** The largest corner radius baked into a texture, in pixels. */
+    private static final int MAX_CORNER = 128;
+
     /** True while rounded shapes draw as one textured piece each (cheap enough for the light effects mode too). */
     static boolean ok() {
         return !broken;
@@ -74,6 +77,12 @@ public final class Shapes {
             float sc = Math.max(1f, scale());
             int rpx = Math.max(1, Math.round(r * sc));
             int ring = ringGui > 0 ? Math.max(1, Math.round(ringGui * sc)) : 0;
+            // a corner texture is (2R+1) squared, supersampled and kept: never bake a huge one (a growing ring
+            // asked for a new one thousands of pixels wide every frame); past the cap the corner is stretched
+            if (rpx > MAX_CORNER) {
+                ring = ring > 0 ? Math.max(1, Math.round(ring * (float) MAX_CORNER / rpx)) : 0;
+                rpx = MAX_CORNER;
+            }
             Tex.Img img = corner(rpx, ring);
             AbstractTexture tex = Minecraft.getInstance().getTextureManager().getTexture(img.id);
             TextureSetup setup = TextureSetup.singleTexture(tex.getTextureView(), tex.getSampler());

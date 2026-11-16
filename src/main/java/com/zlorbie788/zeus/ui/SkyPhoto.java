@@ -644,18 +644,13 @@ public interface Skyline {
 
         public float at(float az) {
 
-            az = ((az + 90f) % 360f + 360f) % 360f;
-
-            int i = Math.round(az);
-
-            int a = Math.max(0, i);
-
-            int b = Math.min(table.length - 1, i);
-
-            if (a >= b) return table[a];
-
-            float f = az - i;
-
+            // one entry per degree round the horizon: blend the two either side, wrapping past 359 to 0
+            // (rounding used to pick index 360 when facing within half a degree of the seam)
+            int n = table.length;
+            float p = ((az + 90f) % 360f + 360f) % 360f * n / 360f;
+            int a = ((int) Math.floor(p)) % n;
+            int b = (a + 1) % n;
+            float f = p - (float) Math.floor(p);
             return table[a] + (table[b] - table[a]) * f;
 
         }

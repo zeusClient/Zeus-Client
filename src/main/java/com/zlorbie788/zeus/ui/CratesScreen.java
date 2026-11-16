@@ -25,19 +25,40 @@ import java.util.Random;
 
 /**
  * Zeus Crates: pick a crate, see what is inside and the odds, open it with a key on a spinning reel,
- * and watch the knife come out. Also the collection of every knife and the promo code box.
+ * and watch the knife come out. Also the collection of every knife, the drop history, promo codes and
+ * the daily quests.
  *
- * Everything that moves is driven by real time and eased, and every knife that is not the focus is
- * drawn from a cached still (see {@link KnifeHDGui#still}), so the screen stays smooth.
+ * <p>The screen is laid out on a canvas of design units that is sized from the window, not from the GUI
+ * scale, and drawn in real pixels: it looks the same at every GUI scale, and its text is set in Inter
+ * (see {@link Ty}) so it stays sharp. One unit is {@code s} real pixels; a 1080p window is 960 x 540 units.
+ *
+ * <p>Everything that moves is driven by real time and eased. Knives that are not the focus are drawn
+ * from cached stills (see {@link KnifeHDGui#still}), and once the opening sequence covers the screen the
+ * panel behind it is not drawn at all, so the screen stays light.
  */
 public final class CratesScreen extends Screen {
-    private static final String[] TABS = {"CRATES", "COLLECTION", "HISTORY", "REDEEM", "DAILY"};
+    private static final String[] TABS = {"Crates", "Collection", "History", "Redeem", "Daily"};
     private static final int T_CRATES = 0, T_COLL = 1, T_HIST = 2, T_REDEEM = 3, T_DAILY = 4;
+
+    // palette
     private static final int GOLD = 0xFFF5C04A;
-    private static final int TEXT = 0xFFE9F1FF;
-    private static final int SUB = 0xFF8EA2CC;
-    private static final int FAINT = 0xFF5E73A0;
-    private static final int PANEL = 0xFF080C18;
+    private static final int GOLD_DARK = 0xFFB07A18;
+    private static final int TEXT = 0xFFEEF2FF;
+    private static final int SUB = 0xFF98A6C8;
+    private static final int FAINT = 0xFF5F6D90;
+    private static final int GREEN = 0xFF5EE6A0;
+    private static final int RED = 0xFFFF7A7A;
+    private static final int PITY = 0xFFD86BF0;
+    private static final int PANEL_TOP = 0xFF0C1122;
+    private static final int PANEL_BOT = 0xFF070A15;
+    private static final int SURFACE = 0xFF0E1426;
+    private static final int SURFACE2 = 0xFF141C33;
+    private static final int RAISED = 0xFF1A2440;
+    private static final int BORDER = 0xFF1C2641;
+    private static final int BORDER_HI = 0xFF2E3D66;
+
+    // text sizes, in units
+    private static final float F_TITLE = 13.5f, F_H = 10f, F_BODY = 8f, F_SMALL = 7f, F_TINY = 6.2f;
 
     private final Screen parent;
     private final long born = com.zlorbie788.zeus.core.Clock.nanoTime();
@@ -48,8 +69,6 @@ public final class CratesScreen extends Screen {
     private float selAt = -10f;
     private float openedAt;
     private float lastT;
-    private int px, py, pw, ph;
-    private float collScroll, collScrollShown;
     private EditBox codeBox;
     private String codeMsg = "";
     private boolean codeOk;
@@ -58,14 +77,21 @@ public final class CratesScreen extends Screen {
     private long flashAt;
     private Opening opening;
 
+    // canvas: real pixels per unit, GUI scale, canvas size in units, the panel and the mouse in units
+    private float s = 2f;
+    private int gs = 2;
+    private float W, H;
+    private float px, py, pw, ph;
+    private float mxu = -1e5f, myu = -1e5f;
+
     // smoothed UI state
     private float underX = -1, underW;
     private float selBarY = -1;
-    private final float[] rowHover = new float[8];
     private final Map<Integer, Float> hoverAnim = new HashMap<>();
-    private int lastCrateCx, lastCrateCy, lastCrateSize = 110;
+    private float lastCrateCx, lastCrateCy, lastCrateSize = 110;
     private float shownTokens = -1, shownKeys = -1;
     private int lastTokens, lastKeys;
+    private float collScroll, collScrollShown;
     private float histScroll, histScrollShown;
     private Item inspect;
     private float inspectAt;
@@ -73,11 +99,13 @@ public final class CratesScreen extends Screen {
     private boolean dragging;
     private double dragLastX;
     private final List<Object[]> floats = new ArrayList<>();
+    private String tip;
+    private Item tipItem;
 
-    // hit boxes rebuilt every frame
-    private final List<int[]> hits = new ArrayList<>();
+    // hit boxes rebuilt every frame, in units
+    private final List<float[]> hits = new ArrayList<>();
     private static final int H_TAB = 1, H_CRATE = 2, H_OPEN = 3, H_BUY = 4, H_REDEEM = 5, H_EQUIP = 6, H_AGAIN = 7, H_DONE = 8,
-            H_COLL = 9, H_CLOSE = 10, H_FIELD = 11, H_QUICK = 12, H_INSPECT = 13, H_HIST = 14;
+            H_COLL = 9, H_CLOSE = 10, H_FIELD = 11, H_QUICK = 12, H_INSPECT = 13, H_HIST = 14, H_MULTI = 15, H_AUTO = 16, H_STOP = 17;
 
     public CratesScreen(Screen parent) {
         super(Component.literal("Zeus Crates"));
@@ -143,34 +171,168 @@ public final class CratesScreen extends Screen {
         minecraft.setScreen(parent);
     }
 
-    private void layout() {
-        pw = Math.min(width - 16, 720);
-        ph = Math.min(height - 16, 400);
-        px = (width - pw) / 2;
-        py = (height - ph) / 2;
+    // ------------------------------------------------------------------ canvas
+    /** Sizes the canvas from the window: 960 x 540 units fill a 16:9 window; small windows keep text readable. */
+    private void measure() {
+        gs = Math.max(1, Tex.guiScale());
+        float rw = width * gs, rh = height * gs;
+        float k = Math.min(rw / 960f, rh / 540f);
+        if (k < 1.1f) k = Math.min(1.1f, Math.min(rw / 680f, rh / 380f));
+        s = Math.max(0.5f, k);
+        W = rw / s;
+        H = rh / s;
+        float m = H < 440 ? 10 : 20;
+        pw = Math.min(W - 2 * m, 1000);
+        ph = Math.min(H - 2 * m, 560);
+        px = (W - pw) / 2f;
+        py = (H - ph) / 2f;
+    }
+
+    private int P(float u) {
+        return Math.round(u * s);
+    }
+
+    private void rect(GuiGraphics g, float x, float y, float w, float h, float r, int c) {
+        rect(g, x, y, w, h, r, c, c);
+    }
+
+    private void rect(GuiGraphics g, float x, float y, float w, float h, float r, int top, int bottom) {
+        int x0 = P(x), y0 = P(y);
+        Draw.rrect(g, x0, y0, P(x + w) - x0, P(y + h) - y0, P(r), top, bottom);
+    }
+
+    /** A one-pixel outline round a rounded box: a hairline at every scale. */
+    private void stroke(GuiGraphics g, float x, float y, float w, float h, float r, int c) {
+        int x0 = P(x), y0 = P(y);
+        Draw.rrectLine(g, x0, y0, P(x + w) - x0, P(y + h) - y0, P(r), c);
+    }
+
+    private void fill(GuiGraphics g, float x, float y, float w, float h, int c) {
+        g.fill(P(x), P(y), Math.max(P(x) + 1, P(x + w)), Math.max(P(y) + 1, P(y + h)), c);
+    }
+
+    /** A soft light round a box; {@code peak} is its brightness at the box edge. */
+    private void glow(GuiGraphics g, float x, float y, float w, float h, float r, int c, float spread, float peak) {
+        if (peak <= 0f) return;
+        int x0 = P(x), y0 = P(y), sp = Math.max(1, P(spread));
+        Draw.glow(g, x0, y0, Math.max(1, P(x + w) - x0), Math.max(1, P(y + h) - y0), P(r), c, sp, Math.min(1f, peak) * 3f / sp);
+    }
+
+    private void sheen(GuiGraphics g, float x, float y, float w, float h, int c, float phase) {
+        int x0 = P(x), y0 = P(y);
+        Draw.sheen(g, x0, y0, P(x + w) - x0, P(y + h) - y0, c, phase);
+    }
+
+    private void line(GuiGraphics g, float x1, float y1, float x2, float y2, float thick, int c) {
+        Draw.line(g, x1 * s, y1 * s, x2 * s, y2 * s, Math.max(1f, thick * s), c);
+    }
+
+    private void scissor(GuiGraphics g, float x, float y, float w, float h) {
+        g.enableScissor(P(x), P(y), P(x + w), P(y + h));
+    }
+
+    // text, centred on cy
+    private void text(GuiGraphics g, String t, float x, float cy, float size, int weight, int c) {
+        Ty.text(g, t, P(x), P(cy), size * s, weight, c);
+    }
+
+    private void textC(GuiGraphics g, String t, float cx, float cy, float size, int weight, int c) {
+        Ty.textC(g, t, P(cx), P(cy), size * s, weight, c);
+    }
+
+    private void textR(GuiGraphics g, String t, float xr, float cy, float size, int weight, int c) {
+        Ty.textR(g, t, P(xr), P(cy), size * s, weight, c);
+    }
+
+    private float tw(String t, float size, int weight) {
+        return Ty.w(t, size * s, weight) / s;
+    }
+
+    private String fit(String t, float max, float size, int weight) {
+        return Ty.fit(t, Math.max(1, Math.round(max * s)), size * s, weight);
+    }
+
+    /** Draws a knife fitted into a box; drawn in GUI space so the knife picks its detail from its real size. */
+    private void knife(GuiGraphics g, int kind, float x, float y, float w, float h, boolean live, float time) {
+        if (kind < 0) return;
+        int bw = Math.round(w * s / gs), bh = Math.round(h * s / gs);
+        if (bw < 3 || bh < 3) return;
+        g.pose().pushMatrix();
+        g.pose().translate(x * s, y * s);
+        g.pose().scale(gs, gs);
+        if (live) KnifeArt.showcase(g, kind, 0, 0, 0, bw, bh, time, false);
+        else KnifeArt.still(g, kind, 0, 0, bw, bh);
+        g.pose().popMatrix();
+    }
+
+    private void knifeSpin(GuiGraphics g, int hd, float x, float y, float w, float h, float yaw, float tilt) {
+        int bw = Math.round(w * s / gs), bh = Math.round(h * s / gs);
+        if (hd < 0 || bw < 3 || bh < 3) return;
+        g.pose().pushMatrix();
+        g.pose().translate(x * s, y * s);
+        g.pose().scale(gs, gs);
+        KnifeHDGui.spin(g, hd, 0, 0, bw, bh, yaw, tilt);
+        g.pose().popMatrix();
+    }
+
+    /** Draws a crate centred on (cx, cy), {@code size} units wide. */
+    private void crate(GuiGraphics g, Crate c, float cx, float cy, float size, float t, float lid, float shake, float glowBoost) {
+        int sz = Math.max(8, Math.round(size * s / gs));
+        g.pose().pushMatrix();
+        g.pose().translate(cx * s, cy * s);
+        g.pose().scale(gs, gs);
+        drawCrate(g, c, 0f, 0f, sz, t, lid, shake * s / gs, glowBoost);
+        g.pose().popMatrix();
     }
 
     @Override
     protected void init() {
-        layout();
+        measure();
         String keep = codeBox == null ? "" : codeBox.getValue();
-        codeBox = new EditBox(font, 0, 0, 220, 18, Component.literal("Promo code"));
+        codeBox = new EditBox(font, 0, 0, 200, 14, Component.literal("Promo code"));
         codeBox.setMaxLength(24);
         codeBox.setBordered(false);
         codeBox.setTextColor(0xFFFFFFFF);
         codeBox.setHint(Component.literal("ZEUS-XXXX-XXXX"));
         codeBox.setValue(keep);
-        addRenderableWidget(codeBox);
-        placeCodeBox();
+        // the box only takes the typing; its text, hint and caret are drawn by redeemTab in the panel's font
+        addWidget(codeBox);
+        hideCodeBox();
+        preload();
     }
 
-    private void placeCodeBox() {
-        int bw = 220;
-        codeBox.setX(px + pw / 2 - bw / 2 + 8);
-        codeBox.setY(py + 97);
-        codeBox.setWidth(bw - 16);
+    /**
+     * Starts reading every crate case and every knife sheet the screen shows in the background, the chosen
+     * crate's first, so no frame waits on a picture being read (opening a crate used to stutter on them).
+     */
+    private void preload() {
+        for (Crate c : Crates.CRATES) {
+            for (String part : new String[] {"body", "lid"}) {
+                for (int w : new int[] {512, 256, 128}) Tex.prefetch("textures/crates/" + c.id + "_" + part + "_" + w + ".png");
+            }
+        }
+        List<Crate> order = new ArrayList<>(Crates.CRATES);
+        order.remove(Crates.CRATES.get(sel));
+        order.add(0, Crates.CRATES.get(sel));
+        for (Crate c : order) for (Item it : c.items) KnifeHDGui.prefetch(Crates.hdOf(it.id()), false);
+        KnifeHDGui.prefetch(Crates.hdOf(Crates.STARTER), false);
+    }
+
+    /** The promo code field sits inside the drawn field box (units); the vanilla box takes the typing. */
+    private void placeCodeBox(float x, float cy, float w) {
+        if (codeBox == null) return;
+        codeBox.setX(Math.round(x * s / gs));
+        codeBox.setY(Math.round(cy * s / gs) - 4);
+        codeBox.setWidth(Math.max(20, Math.round(w * s / gs)));
         codeBox.visible = tab == T_REDEEM && opening == null && inspect == null;
         codeBox.active = codeBox.visible;
+    }
+
+    private void hideCodeBox() {
+        if (codeBox != null) {
+            codeBox.visible = false;
+            codeBox.active = false;
+        }
     }
 
     // ------------------------------------------------------------------ sound
@@ -180,47 +342,115 @@ public final class CratesScreen extends Screen {
             if (e instanceof Holder<?> h) {
                 @SuppressWarnings("unchecked") Holder<SoundEvent> hs = (Holder<SoundEvent>) h;
                 sm.play(SimpleSoundInstance.forUI(hs.value(), pitch, vol));
-            } else if (e instanceof SoundEvent s) {
-                sm.play(SimpleSoundInstance.forUI(s, pitch, vol));
+            } else if (e instanceof SoundEvent se) {
+                sm.play(SimpleSoundInstance.forUI(se, pitch, vol));
             }
         } catch (RuntimeException ignored) {
         }
     }
 
-    // ------------------------------------------------------------------ drawing helpers
-    private void hit(int kind, int idx, int x, int y, int w, int h) {
-        hits.add(new int[] {kind, idx, x, y, w, h});
+    // ------------------------------------------------------------------ small parts
+    private void hit(int kind, int idx, float x, float y, float w, float h) {
+        hits.add(new float[] {kind, idx, x, y, w, h});
     }
 
-    private static boolean in(int mx, int my, int x, int y, int w, int h) {
+    private static boolean in(float mx, float my, float x, float y, float w, float h) {
         return mx >= x && mx < x + w && my >= y && my < y + h;
     }
 
-    private void button(GuiGraphics g, int kind, int x, int y, int w, int h, String label, int colour, boolean enabled, boolean primary,
-                        int mx, int my, float t, float dt) {
-        boolean hot = enabled && in(mx, my, x, y, w, h);
-        float hv = hover(1000 + kind, hot, dt);
-        g.pose().pushMatrix();
-        float sc = 1f + 0.035f * hv;
-        g.pose().translate(x + w / 2f, y + h / 2f);
-        g.pose().scale(sc, sc);
-        g.pose().translate(-(x + w / 2f), -(y + h / 2f));
+    private boolean hot(float x, float y, float w, float h) {
+        return in(mxu, myu, x, y, w, h);
+    }
+
+    /**
+     * A button. The primary one is filled with its colour and breathes a little; the rest are dark with a
+     * coloured edge that lights up on hover. {@code right} is an optional quieter second label.
+     */
+    private void button(GuiGraphics g, int kind, float x, float y, float w, float h, String label, String right, int colour,
+                        boolean enabled, boolean primary, float t, float dt) {
+        boolean on = enabled && hot(x, y, w, h);
+        float hv = hover(1000 + kind, on, dt);
+        float r = Math.min(h / 2f, 8f);
+        float fs = h >= 28 ? 9f : F_BODY;
+        float lw = tw(label, fs, Ty.BOLD), rw2 = right == null ? 0 : tw(right, F_SMALL, Ty.SEMI) + 8;
+        float lx = x + w / 2f - (lw + rw2) / 2f;
         if (primary && enabled) {
             float pulse = 0.5f + 0.5f * (float) Math.sin(t * 3.2f);
-            Draw.glow(g, x, y, w, h, 6, colour, 9, 0.14f + 0.10f * pulse + 0.18f * hv);
-            Draw.rrect(g, x, y, w, h, 6, Draw.lighten(colour, 0.04f + 0.16f * hv), Draw.darken(colour, 0.25f));
-            Draw.sheen(g, x, y, w, h, 0x60FFFFFF, (t * 0.45f) % 1.6f);
-            Draw.boldCenter(g, label, x + w / 2, y + (h - 8) / 2, 0xFF1A1206);
+            glow(g, x, y, w, h, r, colour, 9, 0.10f + 0.05f * pulse + 0.14f * hv);
+            rect(g, x, y, w, h, r, Draw.lighten(colour, 0.10f + 0.14f * hv), Draw.darken(colour, 0.22f));
+            fill(g, x + r, y + 0.6f, w - 2 * r, 0.6f, Draw.rgba(0xFFFFFFFF, 0.35f));
+            sheen(g, x, y, w, h, 0x50FFFFFF, (t * 0.45f) % 1.6f);
+            int ink = 0xFF160F04;
+            text(g, label, lx, y + h / 2f, fs, Ty.BOLD, ink);
+            if (right != null) text(g, right, lx + lw + 8, y + h / 2f, F_SMALL, Ty.SEMI, Draw.rgba(ink, 0.62f));
         } else {
-            int bg = !enabled ? 0xFF10141E : Draw.mix(0xFF141C30, 0xFF1E2A48, hv);
-            Draw.rrect(g, x, y, w, h, 6, bg);
-            Draw.rrectLine(g, x, y, w, h, 6, !enabled ? 0xFF1E2638 : Draw.mix(Draw.darken(colour, 0.35f), Draw.lighten(colour, 0.2f), hv));
-            Draw.boldCenter(g, label, x + w / 2, y + (h - 8) / 2, enabled ? TEXT : 0xFF4A5670);
+            rect(g, x, y, w, h, r, !enabled ? 0xFF0D1220 : Draw.mix(SURFACE2, RAISED, hv));
+            stroke(g, x, y, w, h, r, !enabled ? 0xFF161E33 : Draw.mix(Draw.mix(BORDER_HI, colour, 0.25f), colour, hv));
+            text(g, label, lx, y + h / 2f, fs, Ty.SEMI, enabled ? TEXT : FAINT);
+            if (right != null) text(g, right, lx + lw + 8, y + h / 2f, F_SMALL, Ty.MED, enabled ? Draw.mix(SUB, colour, 0.5f) : FAINT);
         }
-        g.pose().popMatrix();
         if (enabled) hit(kind, 0, x, y, w, h);
     }
 
+    /** A small pill with a label, used for counts and tags. Returns its width. */
+    private float chip(GuiGraphics g, float x, float cy, String label, int colour, boolean filled) {
+        float w = tw(label, F_TINY, Ty.BOLD) + 10, h = 12;
+        if (filled) rect(g, x, cy - h / 2f, w, h, h / 2f, colour);
+        else {
+            rect(g, x, cy - h / 2f, w, h, h / 2f, Draw.rgba(colour, 0.14f));
+            stroke(g, x, cy - h / 2f, w, h, h / 2f, Draw.rgba(colour, 0.45f));
+        }
+        textC(g, label, x + w / 2f, cy, F_TINY, Ty.BOLD, filled ? 0xFF0A0A12 : colour);
+        return w;
+    }
+
+    private void bar(GuiGraphics g, float x, float y, float w, float h, float f, int colour) {
+        rect(g, x, y, w, h, h / 2f, 0xFF161F38);
+        if (f > 0f) rect(g, x, y, Math.max(h, w * Math.min(1f, f)), h, h / 2f, Draw.lighten(colour, 0.12f), colour);
+    }
+
+    private void dot(GuiGraphics g, float cx, float cy, float r, int colour) {
+        rect(g, cx - r, cy - r, 2 * r, 2 * r, r, colour);
+    }
+
+    /** A tick mark, drawn with two strokes so it does not depend on the font. */
+    private void tick(GuiGraphics g, float cx, float cy, float size, int colour) {
+        float th = Math.max(1.1f, size * 0.2f);
+        line(g, cx - size * 0.45f, cy, cx - size * 0.12f, cy + size * 0.32f, th, colour);
+        line(g, cx - size * 0.12f, cy + size * 0.32f, cx + size * 0.48f, cy - size * 0.36f, th, colour);
+    }
+
+    private void cross(GuiGraphics g, float cx, float cy, float size, int colour) {
+        float th = Math.max(1.1f, size * 0.17f);
+        line(g, cx - size / 2f, cy - size / 2f, cx + size / 2f, cy + size / 2f, th, colour);
+        line(g, cx - size / 2f, cy + size / 2f, cx + size / 2f, cy - size / 2f, th, colour);
+    }
+
+    /** A padlock for locked knives. */
+    private void lock(GuiGraphics g, float cx, float cy, float size, int colour) {
+        float bw = size, bh = size * 0.72f;
+        float sw = size * 0.6f, sh = size * 0.9f;
+        stroke(g, cx - sw / 2f, cy - size * 0.78f, sw, sh, sw / 2f, colour);
+        stroke(g, cx - sw / 2f + 1f / s, cy - size * 0.78f + 1f / s, sw - 2f / s, sh, sw / 2f, colour);
+        rect(g, cx - bw / 2f, cy - bh * 0.2f, bw, bh, size * 0.16f, colour);
+        dot(g, cx, cy + bh * 0.22f, size * 0.09f, 0xFF0A0E1A);
+    }
+
+    private void coin(GuiGraphics g, float cx, float cy, float r) {
+        rect(g, cx - r, cy - r, 2 * r, 2 * r, r, Draw.lighten(GOLD, 0.15f), GOLD_DARK);
+        textC(g, "Z", cx, cy, r * 1.15f, Ty.XBOLD, 0xFF3A2A08);
+    }
+
+    private void keyIcon(GuiGraphics g, float x, float cy, float size, int c) {
+        float r = size * 0.3f;
+        stroke(g, x, cy - r, 2 * r, 2 * r, r, c);
+        stroke(g, x + 1f / s, cy - r + 1f / s, 2 * r - 2f / s, 2 * r - 2f / s, r, c);
+        fill(g, x + 2 * r - 0.5f, cy - 0.7f, size * 0.6f, 1.4f, c);
+        fill(g, x + 2 * r + size * 0.38f, cy, 1.4f, size * 0.24f, c);
+        fill(g, x + 2 * r + size * 0.52f, cy, 1.4f, size * 0.18f, c);
+    }
+
+    // ------------------------------------------------------------------ crate art
     /**
      * A Zeus crate drawn from boxes: body, straps, a glowing emblem and a lid. The lid can lift and
      * turn away (opening), and the whole crate can shake.
@@ -287,10 +517,20 @@ public final class CratesScreen extends Screen {
 
     /** The case art at the sharpest size the crate needs on screen (the textures have no mipmaps). */
     private static Tex.Img caseImg(Crate c, String part, int size) {
-        float px = size * (float) Math.max(1, minecraftScale());
-        int w = px > 300 ? 512 : px > 150 ? 256 : 128;
-        Tex.Img img = Tex.sprite("textures/crates/" + c.id + "_" + part + "_" + w + ".png");
-        return img != null ? img : Tex.sprite("textures/crates/" + c.id + "_" + part + "_256.png");
+        float pxs = size * (float) Math.max(1, minecraftScale());
+        int w = pxs > 300 ? 512 : pxs > 150 ? 256 : 128;
+        String base = "textures/crates/" + c.id + "_" + part + "_";
+        Tex.Img img = Tex.spriteIfReady(base + w + ".png");
+        if (img != null) return img;
+        // still loading in the background: another size that is ready will do for a frame
+        if (Tex.pending(base + w + ".png")) {
+            for (int o : new int[] {512, 256, 128}) {
+                Tex.Img other = Tex.spriteIfReady(base + o + ".png");
+                if (other != null) return other;
+            }
+        }
+        img = Tex.sprite(base + w + ".png");
+        return img != null ? img : Tex.sprite(base + "256.png");
     }
 
     private static double minecraftScale() {
@@ -404,97 +644,250 @@ public final class CratesScreen extends Screen {
         return hd < 0 ? -1 : KnifeArt.allKnives().length - KnifeArt.HD_COUNT + hd;
     }
 
-    /** One knife card: dark glass tinted with the rarity, the knife, its name, a rarity strip. */
-    private void card(GuiGraphics g, Item it, int x, int y, int w, int h, boolean owned, boolean locked, float live, float t) {
-        int rc = it.rarity().tint();
-        Draw.rrect(g, x, y, w, h, 5, Draw.mix(0xFF0C1020, rc, 0.20f + 0.08f * live), 0xFF080B16);
-        Draw.rrectLine(g, x, y, w, h, 5, Draw.mix(Draw.darken(rc, 0.35f), Draw.lighten(rc, 0.2f), live));
-        g.fill(x + 3, y + h - 4, x + w - 3, y + h - 2, rc);
-        boolean named = h >= 44;
-        int kind = kindOf(it.id());
-        int kh = h - (named ? 17 : 5);
-        // a soft light in the rarity's colour behind the knife, so dark blades stand off the dark tile
-        int sp = Math.max(6, Math.min(w, kh) / 2);
-        Draw.glow(g, x + w / 2 - 1, y + kh / 2, 2, 2, 1, rc, sp, (0.20f + 0.12f * live) * 3f / sp);
-        if (kind >= 0) {
-            if (live > 0.5f) KnifeArt.showcase(g, kind, 0, x + 1, y + 1, w - 2, kh + 2, t, false);
-            else KnifeArt.still(g, kind, x + 1, y + 1, w - 2, kh + 2);
+    /** One knife card to draw: where, how lit, and what to show on it. */
+    private static final class Card {
+        Item it;
+        float x, y, w, h;
+        boolean owned, locked, big;
+        float live;
+        /** How much larger than its box size the card is drawn; the knife is scaled, not rebuilt, so it stays cached. */
+        float sc = 1f;
+        /** A dark veil over the card (0 none), for cards fading in or dimmed in the reel. */
+        float veil;
+        int veilColour;
+
+        Card set(Item it, float x, float y, float w, float h, boolean owned, boolean locked, float live, boolean big) {
+            this.it = it;
+            this.x = x;
+            this.y = y;
+            this.w = w;
+            this.h = h;
+            this.owned = owned;
+            this.locked = locked;
+            this.live = live;
+            this.big = big;
+            this.veil = 0f;
+            this.sc = 1f;
+            return this;
         }
-        if (it.rarity() == Rarity.CHROMA && !locked) {
-            Draw.sheen(g, x + 1, y + 1, w - 2, h - 2, 0x40FFFFFF, (now() * 0.45f) % 1.8f);
+
+        float r() {
+            return big ? 10 : 7;
         }
-        if (locked) {
-            Draw.rrect(g, x, y, w, h, 5, 0xB0060810);
-            Draw.boldCenter(g, "?", x + w / 2, y + h / 2 - 10, 0x80A0B0D0);
+
+        float top() {
+            return big ? 22 : 3;
         }
-        if (named) Draw.textCenter(g, Draw.fit(shortName(nameOf(it.id())), w - 6), x + w / 2, y + h - 15, locked ? 0xFF5E6A88 : TEXT);
-        if (owned) {
-            Draw.rrect(g, x + w - 13, y + 3, 10, 10, 5, 0xFF1E8A4A);
-            Draw.textCenter(g, "✔", x + w - 8, y + 4, 0xFFFFFFFF);
+
+        float kh() {
+            return h - (h >= 46 ? (big ? 30 : 15) : 3) - top() - 2;
         }
+    }
+
+    private final List<Card> cards = new ArrayList<>();
+    private int cardsUsed;
+
+    private void cardsBegin() {
+        cardsUsed = 0;
+    }
+
+    private Card cardAdd() {
+        if (cardsUsed == cards.size()) cards.add(new Card());
+        return cards.get(cardsUsed++);
+    }
+
+    /**
+     * Draws the cards collected since {@link #cardsBegin}: every card's background, then every outline, every glow,
+     * every knife, then the text and marks. Each step uses one texture for all the cards, so the GUI sends each step
+     * as one batch instead of switching textures several times per card.
+     */
+    private void cardsDraw(GuiGraphics g, float t) {
+        int n = cardsUsed;
+        for (int i = 0; i < n; i++) {
+            Card c = cards.get(i);
+            int rc = c.it.rarity().tint();
+            rect(g, c.x, c.y, c.w, c.h, c.r(), Draw.mix(0xFF0C1122, rc, 0.05f + 0.05f * c.live), Draw.mix(0xFF0B1020, rc, 0.20f + 0.10f * c.live));
+        }
+        for (int i = 0; i < n; i++) {
+            Card c = cards.get(i);
+            int rc = c.it.rarity().tint();
+            stroke(g, c.x, c.y, c.w, c.h, c.r(), Draw.mix(Draw.mix(BORDER, rc, 0.40f), Draw.lighten(rc, 0.25f), c.live));
+        }
+        // a soft light in the rarity's colour behind each knife, so dark blades stand off the dark tile
+        for (int i = 0; i < n; i++) {
+            Card c = cards.get(i);
+            float kh = c.kh(), sp = Math.max(6, Math.min(c.w, kh) * 0.42f);
+            glow(g, c.x + c.w / 2f - 1, c.y + c.top() + kh / 2f - 1, 2, 2, 1, c.it.rarity().tint(), sp, 0.20f + 0.14f * c.live);
+        }
+        for (int i = 0; i < n; i++) {
+            Card c = cards.get(i);
+            if (c.sc == 1f) {
+                knife(g, kindOf(c.it.id()), c.x + 3, c.y + c.top(), c.w - 6, c.kh(), c.live > 0.5f, t);
+                continue;
+            }
+            // drawn at the unscaled size and scaled round the card's centre
+            float bw = c.w / c.sc, bh = c.h / c.sc, cx = c.x + c.w / 2f, cy = c.y + c.h / 2f;
+            float kh = bh - (bh >= 46 ? 15 : 3) - c.top() - 2;
+            g.pose().pushMatrix();
+            g.pose().translate(cx * s, cy * s);
+            g.pose().scale(c.sc, c.sc);
+            g.pose().translate(-cx * s, -cy * s);
+            knife(g, kindOf(c.it.id()), cx - bw / 2f + 3, cy - bh / 2f + c.top(), bw - 6, kh, c.live > 0.5f, t);
+            g.pose().popMatrix();
+        }
+        for (int i = 0; i < n; i++) {
+            Card c = cards.get(i);
+            if (c.it.rarity() == Rarity.CHROMA && !c.locked) sheen(g, c.x + 1, c.y + 1, c.w - 2, c.h - 2, 0x40FFFFFF, (now() * 0.45f) % 1.8f);
+        }
+        // the rarity line along the bottom edge
+        for (int i = 0; i < n; i++) {
+            Card c = cards.get(i);
+            fill(g, c.x + c.r(), c.y + c.h - 2.4f, c.w - 2 * c.r(), 1.3f, Draw.rgba(c.it.rarity().tint(), c.locked ? 0.45f : 0.95f));
+        }
+        for (int i = 0; i < n; i++) {
+            Card c = cards.get(i);
+            if (c.locked) rect(g, c.x, c.y, c.w, c.h, c.r(), 0x9C060912);
+        }
+        for (int i = 0; i < n; i++) {
+            Card c = cards.get(i);
+            if (c.locked) lock(g, c.x + c.w / 2f, c.y + c.top() + c.kh() / 2f + 2, c.big ? 12 : 8, 0x90A9B6D6);
+        }
+        for (int i = 0; i < n; i++) {
+            Card c = cards.get(i);
+            if (c.h < 46) continue;
+            int rc = c.it.rarity().tint();
+            String full = nameOf(c.it.id());
+            int nc = c.locked ? 0xFF55617F : TEXT;
+            if (c.big) {
+                textC(g, fit(typeName(full), c.w - 16, F_SMALL, Ty.MED), c.x + c.w / 2f, c.y + c.h - 24, F_SMALL, Ty.MED, c.locked ? FAINT : Draw.mix(SUB, rc, 0.35f));
+                textC(g, fit(shortName(full), c.w - 16, F_H + 1, Ty.BOLD), c.x + c.w / 2f, c.y + c.h - 12, F_H + 1, Ty.BOLD, nc);
+            } else {
+                textC(g, fit(shortName(full), c.w - 10, F_SMALL, Ty.SEMI), c.x + c.w / 2f, c.y + c.h - 9, F_SMALL, Ty.SEMI, nc);
+            }
+        }
+        for (int i = 0; i < n; i++) {
+            Card c = cards.get(i);
+            if (c.big) chip(g, c.x + 9, c.y + 13, c.it.rarity().label.toUpperCase(Locale.ROOT) + "  " + c.it.rarity().odds(), c.it.rarity().tint(), false);
+        }
+        for (int i = 0; i < n; i++) {
+            Card c = cards.get(i);
+            if (c.owned) dot(g, c.x + c.w - (c.big ? 7 : 5.5f) - 5, c.y + (c.big ? 7 : 5.5f) + 5, c.big ? 7 : 5.5f, 0xFF1F9A58);
+        }
+        for (int i = 0; i < n; i++) {
+            Card c = cards.get(i);
+            float cr = c.big ? 7 : 5.5f;
+            if (c.owned) tick(g, c.x + c.w - cr - 5, c.y + cr + 5, cr * 1.1f, 0xFFFFFFFF);
+        }
+        for (int i = 0; i < n; i++) {
+            Card c = cards.get(i);
+            if (c.veil > 0.01f) rect(g, c.x, c.y, c.w, c.h, c.r(), Draw.rgba(c.veilColour, c.veil));
+        }
+        cardsUsed = 0;
+    }
+
+    /** One knife card on its own (the winner in the reel). */
+    private void card(GuiGraphics g, Item it, float x, float y, float w, float h, boolean owned, boolean locked, float live, float t,
+                      boolean big) {
+        cardsBegin();
+        cardAdd().set(it, x, y, w, h, owned, locked, live, big);
+        cardsDraw(g, t);
     }
 
     // ------------------------------------------------------------------ render
     @Override
-    public void render(GuiGraphics g, int mx, int my, float partial) {
-        layout();
-        placeCodeBox();
-        hits.clear();
+    public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
+        measure();
         float t = now();
         float dt = Math.max(0f, Math.min(0.1f, t - lastT));
         lastT = t;
+        mxu = mouseX * gs / s;
+        myu = mouseY * gs / s;
+        tip = null;
+        tipItem = null;
+        hits.clear();
+        Ty.begin();
+        boolean covered = opening != null && opening.covers();
+        g.pose().pushMatrix();
+        g.pose().scale(1f / gs, 1f / gs);
+        try {
+            if (covered) {
+                // the opening has faded in and covers everything: the panel under it is not drawn at all
+                hideCodeBox();
+                opening.render(g, t, dt);
+            } else {
+                drawPanel(g, t, dt);
+            }
+        } finally {
+            g.pose().popMatrix();
+        }
+        if (!covered) {
+            boolean over = opening != null || inspect != null;
+            if (over) overlayLayer(g);
+            else if (tipItem != null || tip != null) g.nextStratum();
+            g.pose().pushMatrix();
+            g.pose().scale(1f / gs, 1f / gs);
+            try {
+                if (opening != null) opening.render(g, t, dt);
+                else if (inspect != null) renderInspect(g, t, dt);
+                else if (tipItem != null) tooltip(g, tipItem);
+                else if (tip != null) textTip(g, tip);
+            } finally {
+                g.pose().popMatrix();
+            }
+        }
+        // a knife under the mouse may be clicked open next: read its large sheet ahead
+        if (tipItem != null) KnifeHDGui.prefetch(Crates.hdOf(tipItem.id()), true);
+        g.pose().pushMatrix();
+        g.pose().scale(1f / gs, 1f / gs);
+        floaters(g, t);
+        toast(g);
+        g.pose().popMatrix();
+        Ty.flush();
+    }
+
+    /** The panel with the current tab. */
+    private void drawPanel(GuiGraphics g, float t, float dt) {
         float intro = outCubic((t - openedAt) / 0.32f);
-        g.fill(0, 0, width, height, Draw.rgba(0xC0030610, intro));
         int sc = Crates.CRATES.get(sel).colour;
-        Draw.glow(g, px + pw / 4, py + ph / 3, pw / 2, ph / 3, 40, sc, 60, 0.004f * intro);
+        // the scene: a dark veil over the game, a little of the chosen crate's colour in the air
+        fill(g, 0, 0, W, H, Draw.rgba(0xD8040710, intro));
+        glow(g, W * 0.30f, H * 0.35f, W * 0.40f, H * 0.30f, 40, sc, Math.min(W, H) * 0.35f, 0.05f * intro);
 
         // the panel scales up a touch as it appears
         g.pose().pushMatrix();
-        float ps = 0.94f + 0.06f * outBack((t - openedAt) / 0.38f);
-        g.pose().translate(width / 2f, height / 2f);
+        float ps = 0.95f + 0.05f * outBack((t - openedAt) / 0.38f);
+        g.pose().translate(W * s / 2f, H * s / 2f);
         g.pose().scale(ps, ps);
-        g.pose().translate(-width / 2f, -height / 2f);
-        Draw.shadow(g, px, py, pw, ph, 10, 12, 0.6f);
-        Draw.rrect(g, px, py, pw, ph, 10, 0xF4080C18, 0xF4050812);
-        Draw.rrectLine(g, px, py, pw, ph, 10, 0xFF2A3E6A);
-        header(g, mx, my, t, dt);
+        g.pose().translate(-W * s / 2f, -H * s / 2f);
+        Draw.shadow(g, P(px), P(py), P(pw), P(ph), P(14), P(16), 0.7f);
+        rect(g, px, py, pw, ph, 14, PANEL_TOP, PANEL_BOT);
+        stroke(g, px, py, pw, ph, 14, BORDER_HI);
+        // a faint light along the top edge
+        fill(g, px + 24, py + 0.5f, pw - 48, 1f / s, 0x30FFFFFF);
+        float headH = header(g, t, dt);
+        float top = py + headH + 14, bottom = py + ph - 40 - 12;
 
         // the tab content slides in from the side it was picked from
         float tp = outCubic((t - tabAt) / 0.30f);
         float dir = tab >= prevTab ? 1f : -1f;
         g.pose().pushMatrix();
-        g.pose().translate((1f - tp) * 18f * dir, 0f);
-        if (tab == 0) cratesTab(g, mx, my, t, dt);
-        else if (tab == T_COLL) collectionTab(g, mx, my, t, dt);
-        else if (tab == T_HIST) historyTab(g, mx, my, t, dt);
-        else if (tab == T_DAILY) dailyTab(g, mx, my, t, dt);
-        else redeemTab(g, mx, my, t, dt);
+        g.pose().translate((1f - tp) * 16f * dir * s, 0f);
+        float x0 = px + 20, w0 = pw - 40;
+        if (tab == T_CRATES) cratesTab(g, x0, top, w0, bottom - top, t, dt);
+        else if (tab == T_COLL) collectionTab(g, x0, top, w0, bottom - top, t, dt);
+        else if (tab == T_HIST) historyTab(g, x0, top, w0, bottom - top, t, dt);
+        else if (tab == T_DAILY) dailyTab(g, x0, top, w0, bottom - top, t);
+        else redeemTab(g, x0, top, w0, bottom - top, t, dt);
         g.pose().popMatrix();
-        if (tp < 1f) g.fill(px + 2, py + 56, px + pw - 2, py + ph - 32, Draw.rgba(PANEL, (1f - tp) * 0.85f));
-        footer(g, mx, my, t);
+        if (tp < 1f) fill(g, px + 2, top - 4, pw - 4, bottom - top + 8, Draw.rgba(Draw.mix(PANEL_TOP, PANEL_BOT, 0.5f), (1f - tp) * 0.85f));
+        if (tab != T_REDEEM) hideCodeBox();
+        footer(g, t);
         g.pose().popMatrix();
-
-        if (opening == null && inspect == null && tp >= 1f) super.render(g, mx, my, partial);
-        if (opening == null && inspect != null) {
-            overlayLayer(g);
-            renderInspect(g, mx, my, t, dt);
-        }
-        if (opening != null) {
-            overlayLayer(g);
-            opening.render(g, mx, my, t, dt);
-        }
-        floaters(g, t);
-
-        if (!flash.isEmpty()) {
-            float a = 1f - Math.max(0f, (com.zlorbie788.zeus.core.Clock.millis() - flashAt - 2200) / 600f);
-            if (a <= 0) flash = "";
-            else Draw.toast(g, minecraft, width / 2, py + ph - 52, flash, true, a);
-        }
     }
 
     /**
      * Starts a new GUI layer for a full-screen overlay. The GUI draws text after shapes within a layer, so without
-     * this the crate screen's text would show through the overlay; the game's own blur softens what is behind.
+     * this the panel's widgets would show through the overlay; the game's own blur softens what is behind.
      */
     private static void overlayLayer(GuiGraphics g) {
         g.nextStratum();
@@ -505,9 +898,30 @@ public final class CratesScreen extends Screen {
         }
     }
 
-    private void header(GuiGraphics g, int mx, int my, float t, float dt) {
-        Draw.boldS(g, "ZEUS", px + 14, py + 12, GOLD, 1.25f);
-        Draw.boldS(g, "CRATES", px + 14 + Draw.widthBoldS("ZEUS ", 1.25f), py + 12, TEXT, 1.25f);
+    // ------------------------------------------------------------------ header and footer
+    /** Logo and title, the tab switcher, the balances and the close button. Returns the header's height. */
+    private float header(GuiGraphics g, float t, float dt) {
+        float hx = px + 20, rowH = 52;
+        float cy = py + rowH / 2f + 2;
+        // logo: a gold medallion with the Z
+        float lr = 12;
+        glow(g, hx, cy - lr, 2 * lr, 2 * lr, lr, GOLD, 8, 0.12f);
+        rect(g, hx, cy - lr, 2 * lr, 2 * lr, lr, Draw.lighten(GOLD, 0.18f), GOLD_DARK);
+        textC(g, "Z", hx + lr, cy + 0.5f, 12, Ty.XBOLD, 0xFF3A2A08);
+        float tx = hx + 2 * lr + 10;
+        String subtitle = "Unbox knives for your hand";
+        text(g, "Zeus Crates", tx, cy - 5.5f, F_TITLE, Ty.XBOLD, TEXT);
+        text(g, subtitle, tx, cy + 8, F_SMALL, Ty.MED, SUB);
+        float titleEnd = tx + Math.max(tw("Zeus Crates", F_TITLE, Ty.XBOLD), tw(subtitle, F_SMALL, Ty.MED));
+
+        // right side: close, keys, tokens
+        float cbs = 22, cbx = px + pw - 20 - cbs, cby = cy - cbs / 2f;
+        float chv = hover(9000, hot(cbx, cby, cbs, cbs), dt);
+        rect(g, cbx, cby, cbs, cbs, cbs / 2f, Draw.mix(SURFACE2, 0xFF3A1E2A, chv));
+        stroke(g, cbx, cby, cbs, cbs, cbs / 2f, Draw.mix(BORDER_HI, RED, chv));
+        cross(g, cbx + cbs / 2f, cby + cbs / 2f, 6.5f, Draw.mix(SUB, TEXT, chv));
+        hit(H_CLOSE, 0, cbx, cby, cbs, cbs);
+
         int realT = Crates.tokens(), realK = Crates.keys();
         if (shownTokens < 0) {
             shownTokens = realT;
@@ -515,275 +929,378 @@ public final class CratesScreen extends Screen {
             lastTokens = realT;
             lastKeys = realK;
         }
+        shownTokens = approach(shownTokens, realT, 9f, dt);
+        shownKeys = approach(shownKeys, realK, 9f, dt);
+        String ks = String.valueOf(Math.round(shownKeys)), tk = String.valueOf(Math.round(shownTokens));
+        float chipH = 24, nf = F_BODY + 0.5f;
+        float kw = 32 + tw(ks, nf, Ty.BOLD) + 4 + tw("keys", F_SMALL, Ty.MED) + 12;
+        float kx = cbx - 10 - kw;
+        rect(g, kx, cy - chipH / 2f, kw, chipH, chipH / 2f, SURFACE);
+        stroke(g, kx, cy - chipH / 2f, kw, chipH, chipH / 2f, BORDER_HI);
+        keyIcon(g, kx + 9, cy, 15, 0xFFC8D4F0);
+        text(g, ks, kx + 32, cy, nf, Ty.BOLD, TEXT);
+        text(g, "keys", kx + 32 + tw(ks, nf, Ty.BOLD) + 4, cy, F_SMALL, Ty.MED, SUB);
+        float cw = 28 + tw(tk, nf, Ty.BOLD) + 4 + tw("tokens", F_SMALL, Ty.MED) + 12;
+        float cx = kx - 8 - cw;
+        rect(g, cx, cy - chipH / 2f, cw, chipH, chipH / 2f, SURFACE);
+        stroke(g, cx, cy - chipH / 2f, cw, chipH, chipH / 2f, Draw.mix(BORDER_HI, GOLD, 0.35f));
+        coin(g, cx + 13, cy, 7);
+        text(g, tk, cx + 28, cy, nf, Ty.BOLD, GOLD);
+        text(g, "tokens", cx + 28 + tw(tk, nf, Ty.BOLD) + 4, cy, F_SMALL, Ty.MED, SUB);
         if (realT != lastTokens) {
-            floater((realT > lastTokens ? "+" : "") + (realT - lastTokens), realT > lastTokens ? GOLD : 0xFFFF8A7A, px + pw - 14 - 64 - 40, py + 30, t);
+            floater((realT > lastTokens ? "+" : "") + (realT - lastTokens), realT > lastTokens ? GOLD : RED, cx + cw / 2f, cy + 18, t);
             lastTokens = realT;
         }
         if (realK != lastKeys) {
-            floater((realK > lastKeys ? "+" : "") + (realK - lastKeys) + " key", realK > lastKeys ? 0xFFC8D4F0 : 0xFFFF8A7A, px + pw - 14 - 32, py + 30, t);
+            floater((realK > lastKeys ? "+" : "") + (realK - lastKeys) + (Math.abs(realK - lastKeys) == 1 ? " key" : " keys"),
+                    realK > lastKeys ? 0xFFC8D4F0 : RED, kx + kw / 2f, cy + 18, t);
             lastKeys = realK;
         }
-        shownTokens = approach(shownTokens, realT, 9f, dt);
-        shownKeys = approach(shownKeys, realK, 9f, dt);
-        String tk = Math.round(shownTokens) + "";
-        int cw = 34 + Draw.widthBold(tk) + 40;
-        String ks = Math.round(shownKeys) + "";
-        int kw = 30 + Draw.widthBold(ks) + Draw.width("KEYS") + 8;
-        int kx = px + pw - 14 - kw;
-        int tx = kx - 8 - cw;
-        Draw.rrect(g, tx, py + 9, cw, 18, 9, 0xFF141A2C);
-        Draw.rrectLine(g, tx, py + 9, cw, 18, 9, 0xFF3A3420);
-        Draw.rrect(g, tx + 4, py + 12, 12, 12, 6, GOLD, 0xFFB07A18);
-        Draw.boldCenter(g, "Z", tx + 10, py + 14, 0xFF3A2A08);
-        Draw.bold(g, tk, tx + 21, py + 14, GOLD);
-        Draw.text(g, "TOKENS", tx + 24 + Draw.widthBold(tk), py + 14, SUB);
-        Draw.rrect(g, kx, py + 9, kw, 18, 9, 0xFF141A2C);
-        Draw.rrectLine(g, kx, py + 9, kw, 18, 9, 0xFF2A3E6A);
-        drawKey(g, kx + 6, py + 13, 0xFFC8D4F0);
-        Draw.bold(g, ks, kx + 24, py + 14, TEXT);
-        Draw.text(g, "KEYS", kx + 30 + Draw.widthBold(ks), py + 14, SUB);
 
-        // tabs, with an underline that glides to the chosen one
-        int x = px + 14;
-        float wantX = 0, wantW = 0;
+        // the tab switcher: a track with a highlight that glides to the chosen tab
+        float[] tws = new float[TABS.length];
+        float total = 0;
         for (int i = 0; i < TABS.length; i++) {
-            int w = Draw.widthBold(TABS[i]) + 18;
-            boolean on = i == tab, hot = in(mx, my, x, py + 34, w, 16);
-            float hv = hover(2000 + i, hot || on, dt);
-            if (on) {
-                wantX = x + 4;
-                wantW = w - 8;
+            tws[i] = tw(TABS[i], F_BODY, Ty.SEMI) + 24;
+            total += tws[i];
+        }
+        float trackH = 26, trackW = total + 6;
+        float room = cx - 16 - (titleEnd + 16);
+        boolean twoRows = trackW > room;
+        float trackX = twoRows ? px + 20 : titleEnd + 16 + (room - trackW) / 2f;
+        float trackY = twoRows ? py + rowH + 2 : cy - trackH / 2f;
+        rect(g, trackX, trackY, trackW, trackH, trackH / 2f, 0xFF090D1A);
+        stroke(g, trackX, trackY, trackW, trackH, trackH / 2f, BORDER);
+        float x = trackX + 3, wantX = x, wantW = tws[0];
+        for (int i = 0; i < TABS.length; i++) {
+            if (i == tab) {
+                wantX = x;
+                wantW = tws[i];
             }
-            Draw.boldCenter(g, TABS[i], x + w / 2, py + 38, Draw.mix(FAINT, TEXT, hv));
-            hit(H_TAB, i, x, py + 34, w, 16);
-            x += w + 6;
+            x += tws[i];
         }
-        int tabsEnd = x;
-        // quick open switch, left of the close button
-        boolean q = Crates.quick();
-        String ql = "QUICK OPEN";
-        if (px + pw - 36 - (Draw.width(ql) + 30) < tabsEnd + 6) ql = "QUICK";
-        if (px + pw - 36 - (Draw.width(ql) + 30) < tabsEnd + 6) ql = "";
-        int qw = ql.isEmpty() ? 22 : Draw.width(ql) + 30, qx = px + pw - 36 - qw, qy = py + 35;
-        boolean qhot = in(mx, my, qx, qy, qw, 13);
-        float qv = hover(6000, q, dt);
-        Draw.rrect(g, qx, qy + 2, 20, 10, 5, Draw.mix(0xFF1A2236, GOLD, qv));
-        Draw.rrect(g, qx + 1 + Math.round(qv * 10f), qy + 3, 8, 8, 4, Draw.mix(0xFF8EA2CC, 0xFF1A1206, qv));
-        if (!ql.isEmpty()) Draw.text(g, ql, qx + 25, qy + 3, qhot ? TEXT : q ? 0xFFF5D08A : FAINT);
-        if (qhot) {
-            String tip = q ? "Quick open is on: shorter animation" : "Quick open: shorter opening animation";
-            int tw = Draw.width(tip) + 10;
-            Draw.rrect(g, Math.min(qx, px + pw - tw - 8), qy + 15, tw, 12, 4, 0xF00A0E1C);
-            Draw.text(g, tip, Math.min(qx, px + pw - tw - 8) + 5, qy + 17, SUB);
-        }
-        hit(H_QUICK, 0, qx, qy, qw, 13);
         if (underX < 0) {
             underX = wantX;
             underW = wantW;
         }
         underX = approach(underX, wantX, 18f, dt);
         underW = approach(underW, wantW, 18f, dt);
-        Draw.glow(g, Math.round(underX), py + 50, Math.round(underW), 2, 1, GOLD, 5, 0.2f);
-        g.fill(Math.round(underX), py + 50, Math.round(underX + underW), py + 52, GOLD);
-        g.fill(px + 12, py + 53, px + pw - 12, py + 54, 0xFF18223A);
-        hit(H_CLOSE, 0, px + pw - 28, py + 34, 14, 14);
-        Draw.boldCenter(g, "✕", px + pw - 21, py + 37, in(mx, my, px + pw - 28, py + 34, 14, 14) ? TEXT : FAINT);
+        rect(g, underX, trackY + 3, underW, trackH - 6, (trackH - 6) / 2f, 0xFF243260, 0xFF1A2546);
+        stroke(g, underX, trackY + 3, underW, trackH - 6, (trackH - 6) / 2f, 0xFF3A4C80);
+        x = trackX + 3;
+        for (int i = 0; i < TABS.length; i++) {
+            boolean on = i == tab, h = hot(x, trackY, tws[i], trackH);
+            float hv = hover(2000 + i, h || on, dt);
+            textC(g, TABS[i], x + tws[i] / 2f, trackY + trackH / 2f, F_BODY, Ty.SEMI, on ? TEXT : Draw.mix(FAINT, Draw.mix(SUB, TEXT, 0.5f), hv));
+            hit(H_TAB, i, x, trackY, tws[i], trackH);
+            x += tws[i];
+        }
+        float headH = twoRows ? rowH + trackH + 10 : rowH + 4;
+        fill(g, px + 16, py + headH, pw - 32, 1f / s, BORDER);
+        return headH;
     }
 
-    private static void drawKey(GuiGraphics g, int x, int y, int c) {
-        Draw.rrectLine(g, x, y, 8, 8, 4, c);
-        g.fill(x + 7, y + 3, x + 15, y + 5, c);
-        g.fill(x + 12, y + 5, x + 14, y + 8, c);
-    }
-
-    private void footer(GuiGraphics g, int mx, int my, float t) {
-        int y = py + ph - 24;
-        g.fill(px + 12, y - 6, px + pw - 12, y - 5, 0xFF18223A);
-        long ms = Crates.nextTokenIn();
-        String a = "Next token in " + clock(ms) + (Crates.activeNow() ? "" : "  (paused)");
-        Draw.text(g, a, px + 14, y + 2, SUB);
-        int bx = px + 14 + Draw.width(a) + 10, bw = 90;
-        Draw.rrect(g, bx, y + 3, bw, 5, 2, 0xFF141C30);
-        int fill = Math.max(2, Math.round(bw * Crates.tokenProgress()));
-        Draw.rrect(g, bx, y + 3, fill, 5, 2, GOLD);
-        if (Crates.activeNow()) Draw.sheen(g, bx, y + 3, fill, 5, 0x70FFFFFF, (t * 0.35f) % 1.6f);
-        String d = "Free crate drop in " + clock(Crates.nextDropIn());
-        Draw.textRight(g, d, px + pw - 14, y + 2, FAINT);
+    private void footer(GuiGraphics g, float t) {
+        float fy = py + ph - 40, cy = fy + 20;
+        fill(g, px + 16, fy, pw - 32, 1f / s, BORDER);
+        float x = px + 22;
+        // next token: a clock that only runs while you play
+        boolean active = Crates.activeNow();
+        String lab = "Next token";
+        text(g, lab, x, cy, F_SMALL, Ty.MED, SUB);
+        x += tw(lab, F_SMALL, Ty.MED) + 8;
+        float bw = Math.min(90, pw * 0.1f);
+        bar(g, x, cy - 1.5f, bw, 3, Crates.tokenProgress(), GOLD);
+        if (active) sheen(g, x, cy - 1.5f, bw * Crates.tokenProgress(), 3, 0x70FFFFFF, (t * 0.35f) % 1.6f);
+        x += bw + 8;
+        String clk = clock(Crates.nextTokenIn());
+        text(g, clk, x, cy, F_SMALL, Ty.SEMI, TEXT);
+        x += tw(clk, F_SMALL, Ty.SEMI) + 6;
+        if (!active) x += chip(g, x, cy, "PAUSED", FAINT, false);
+        // free crate drop, right
+        String d = clock(Crates.nextDropIn());
+        float dxr = px + pw - 22;
+        textR(g, d, dxr, cy, F_SMALL, Ty.SEMI, TEXT);
+        String dl = "Free crate in";
+        float dlx = dxr - tw(d, F_SMALL, Ty.SEMI) - 6;
+        textR(g, dl, dlx, cy, F_SMALL, Ty.MED, SUB);
+        float left = x + 16, right = dlx - tw(dl, F_SMALL, Ty.MED) - 16;
         // daily streak, in the middle when there is room
         String st;
-        int sc;
+        int stc;
         if (Crates.streakClaimedToday()) {
-            st = "Day " + Crates.streak() + " streak claimed. Tomorrow: +" + Crates.streakReward(Crates.streakNextDay() + 1) + " tokens";
-            sc = GOLD;
+            st = "Day " + Crates.streak() + " streak claimed  ·  tomorrow +" + Crates.streakReward(Crates.streakNextDay() + 1) + " tokens";
+            stc = GOLD;
         } else {
             int n = Crates.streakNextDay();
-            st = "Play " + clock(Crates.streakPlayLeft()) + " more today for streak day " + n + ": +" + Crates.streakReward(n) + " tokens";
-            sc = SUB;
+            st = "Play " + clock(Crates.streakPlayLeft()) + " more today for streak day " + n + "  ·  +" + Crates.streakReward(n) + " tokens";
+            stc = SUB;
         }
-        int left = bx + bw + 16, right = px + pw - 14 - Draw.width(d) - 16;
-        if (Draw.width(st) <= right - left) Draw.textCenter(g, st, (left + right) / 2, y + 2, sc);
+        float sw = tw(st, F_SMALL, Ty.MED);
+        if (sw + 12 <= right - left) {
+            float sx = (left + right) / 2f - (sw + 12) / 2f;
+            dot(g, sx + 3, cy, 2.6f, Crates.streakClaimedToday() ? GOLD : 0xFF3A4C80);
+            text(g, st, sx + 12, cy, F_SMALL, Ty.MED, stc);
+        }
     }
 
     private static String clock(long ms) {
-        long s = ms / 1000;
-        long h = s / 3600, m = (s / 60) % 60, sec = s % 60;
+        long sec0 = ms / 1000;
+        long h = sec0 / 3600, m = (sec0 / 60) % 60, sec = sec0 % 60;
         return h > 0 ? String.format(Locale.ROOT, "%d:%02d:%02d", h, m, sec) : String.format(Locale.ROOT, "%d:%02d", m, sec);
     }
 
     // ------------------------------------------------------------------ crates tab
-    private void cratesTab(GuiGraphics g, int mx, int my, float t, float dt) {
-        int top = py + 62, bottom = py + ph - 34;
-        boolean small = pw < 560;
-        int lw = small ? 96 : Math.max(120, pw * 24 / 100);
-        int rowH = Math.max(18, Math.min(40, (bottom - top) / Crates.CRATES.size()));
-        // selection bar glides between rows
-        float wantBar = top + sel * rowH;
-        if (selBarY < 0) selBarY = wantBar;
-        selBarY = approach(selBarY, wantBar, 16f, dt);
-        Crate cs0 = Crates.CRATES.get(sel);
-        int by0 = Math.round(selBarY);
-        Draw.rrect(g, px + 12, by0, lw, rowH - 4, 6, Draw.mix(0xFF0C1222, cs0.colour, 0.18f));
-        Draw.rrectLine(g, px + 12, by0, lw, rowH - 4, 6, cs0.colour);
-        g.fill(px + 12, by0 + 4, px + 14, by0 + rowH - 8, cs0.colour);
-        for (int i = 0; i < Crates.CRATES.size(); i++) {
-            Crate c = Crates.CRATES.get(i);
-            int x = px + 12, y = top + i * rowH, w = lw, h = rowH - 4;
-            boolean on = i == sel, hot = in(mx, my, x, y, w, h);
-            rowHover[i] = approach(rowHover[i], hot && !on ? 1f : 0f, 14f, dt);
-            if (!on) Draw.rrect(g, x, y, w, h, 6, Draw.mix(0xFF0B1124, 0xFF111A30, rowHover[i]));
-            int shift = Math.round(rowHover[i] * 3f);
-            drawCrate(g, c, x + 18 + shift, y + h / 2f + 1, Math.min(26, h), t + i, 0f, 0f, 0f);
-            int n = Crates.held(c.id);
-            String cname = c.name.replace(" Crate", "");
-            int sideBadge = n > 0 ? Draw.widthBold("x" + n) + 14 : 0;
-            // a narrow list puts the count on the crate icon, so the whole name fits beside it
-            boolean onIcon = n > 0 && Draw.widthBold(cname) > w - 40 - sideBadge;
-            int badgeW = onIcon ? 0 : sideBadge;
-            int nameW = w - 38 - badgeW;
-            int tc = on ? TEXT : Draw.mix(0xFFB8C6E4, TEXT, rowHover[i]);
-            if (h >= 26 && !small) {
-                Draw.bold(g, Draw.fit(cname, nameW), x + 36 + shift, y + h / 2 - 8, tc);
-                int got = Crates.collected(c);
-                Draw.text(g, Draw.fit(got + " / " + c.items.size() + " collected", nameW), x + 36 + shift, y + h / 2 + 2, got == c.items.size() ? GOLD : FAINT);
-            } else {
-                Draw.bold(g, Draw.fit(cname, nameW), x + 34 + shift, y + h / 2 - 4, tc);
-            }
-            if (onIcon) {
-                String s = "" + n;
-                int bw = Math.max(9, Draw.widthBold(s) + 5);
-                int bx = x + 18 + shift - bw - 3, byy = y + 1;
-                Draw.rrect(g, bx, byy, bw, 9, 4, c.colour);
-                Draw.boldCenter(g, s, bx + bw / 2, byy + 1, 0xFF0A0A10);
-            } else if (n > 0) {
-                String s = "x" + n;
-                int bw = Draw.widthBold(s) + 8;
-                Draw.rrect(g, x + w - bw - 6, y + h / 2 - 6, bw, 12, 6, c.colour);
-                Draw.boldCenter(g, s, x + w - bw / 2 - 6, y + h / 2 - 4, 0xFF0A0A10);
-            }
-            hit(H_CRATE, i, x, y, w, h);
-        }
-        Crate c = Crates.CRATES.get(sel);
-        // centre: the crate itself, popping in when picked
-        int cx0 = px + 12 + lw + 12;
-        int cw = small ? 128 : Math.max(150, pw * 30 / 100);
-        int ccx = cx0 + cw / 2;
-        int avail = bottom - top;
-        boolean compact = avail < 175;
-        int cs = Math.max(compact ? 36 : 44, Math.min(Math.min(cw - 30, 130), Math.round((avail - (compact ? 72 : 100)) / 1.07f)));
-        float pop = outBack((t - selAt) / 0.45f);
-        float bob = (float) Math.sin(t * 1.6f) * Math.max(1.5f, cs / 40f);
-        int need = Math.round(6 + cs * 1.07f + (compact ? 64 : 100));
-        int yC = top + Math.max(6, (avail - need) / 2 + 6) + Math.round(cs * 0.62f);
-        Draw.glow(g, ccx - cw / 4, yC - cs / 4, cw / 2, cs / 2, 30, c.colour, 34, 0.010f + 0.012f * (1f - clamp01((t - selAt) / 0.6f)));
-        int size = Math.max(8, Math.round(cs * (0.82f + 0.18f * pop)));
-        drawCrate(g, c, ccx, yC + bob, size, t, previewLid, 0f, 0.25f * (1f - clamp01((t - selAt) / 0.5f)));
-        lastCrateCx = ccx;
-        lastCrateCy = Math.round(yC + bob);
-        lastCrateSize = cs;
-        int ny = yC + Math.round(cs * 0.45f) + 4;
-        float ta = outCubic((t - selAt - 0.08f) / 0.3f);
-        int lift = Math.round((1f - ta) * 6f);
-        Draw.boldCenterS(g, Draw.fit(c.name.toUpperCase(Locale.ROOT), cw), ccx, ny + lift, Draw.rgba(c.colour, ta), small ? 1f : 1.15f);
-        if (!compact) Draw.textCenter(g, Draw.fit(c.tagline, cw), ccx, ny + 13 + lift, Draw.rgba(SUB, ta));
-        else ny -= 13;
-        int have = Crates.held(c.id);
-        Draw.textCenter(g, Draw.fit(have > 0 ? "You have " + have + "  ·  " + Crates.keys() + " key" + (Crates.keys() == 1 ? "" : "s") : "You have none yet", cw), ccx, ny + 24, have > 0 ? TEXT : FAINT);
-        boolean canOpen = Crates.canOpen(c);
-        int bw = Math.min(cw - 6, 150);
-        button(g, H_OPEN, ccx - bw / 2, ny + 37, bw, 20, canOpen ? "OPEN  \u00b7  " + Crates.KEYS_PER_OPEN + " KEYS" : have > 0 ? "NEEDS " + Crates.KEYS_PER_OPEN + " KEYS" : "NO CRATE", c.colour, canOpen, true, mx, my, t, dt);
-        boolean canBuy = Crates.tokens() >= Crates.KEY_PRICE;
-        button(g, H_BUY, ccx - bw / 2, ny + 61, bw, 16, small ? "KEY  ·  " + Crates.KEY_PRICE + " TOKENS" : "BUY KEY  ·  " + Crates.KEY_PRICE + " TOKENS", GOLD, canBuy, false, mx, my, t, dt);
-        if (!compact) {
-            int pi = Crates.pityIn();
-            String pity = pi == 1 ? "Next open: Divine+ guaranteed" : "Divine+ guaranteed in " + pi + " opens";
-            Draw.textCenter(g, Draw.fit(pity, cw), ccx, ny + 92, pi <= 3 ? 0xFFD32CE6 : FAINT);
-            String hint = !canBuy ? (Crates.KEY_PRICE - Crates.tokens()) + " more tokens for a key"
-                    : Crates.tokens() >= Crates.KEY_PRICE * 2 ? "Shift-click to buy " + Math.min(Crates.KEYS_PER_OPEN, Crates.tokens() / Crates.KEY_PRICE) + " at once" : "";
-            if (!hint.isEmpty()) Draw.textCenter(g, Draw.fit(hint, cw), ccx, ny + 80, FAINT);
-        }
-        // right: contents drop in one after another
-        int rx = cx0 + cw + 10, rw = px + pw - 12 - rx;
-        Draw.bold(g, "INSIDE", rx, top, TEXT);
-        int got = Crates.collected(c);
-        String gs = got + " / " + c.items.size();
-        Draw.textRight(g, gs, rx + rw, top, got == c.items.size() ? GOLD : SUB);
-        int pbx = rx + Draw.widthBold("INSIDE") + 8, pbw = rw - Draw.widthBold("INSIDE") - 16 - Draw.width(gs);
-        if (pbw > 20) {
-            Draw.rrect(g, pbx, top + 3, pbw, 3, 1, 0xFF141C30);
-            Draw.rrect(g, pbx, top + 3, Math.max(2, Math.round(pbw * got / (float) c.items.size())), 3, 1, c.colour);
-        }
-        int cols = 4, gap = 4;
-        int tw = (rw - (cols - 1) * gap) / cols;
-        int rows = (c.items.size() + cols - 1) / cols;
-        int th = Math.max(26, Math.min(52, (bottom - top - 14 - 26 - (rows - 1) * gap) / rows));
-        Item hoverIt = null;
-        for (int i = 0; i < c.items.size(); i++) {
-            Item it = c.items.get(i);
-            int x = rx + (i % cols) * (tw + gap), y = top + 12 + (i / cols) * (th + gap);
-            float e = outCubic((t - selAt - 0.04f - i * 0.028f) / 0.28f);
-            if (e <= 0f) continue;
-            boolean hot = in(mx, my, x, y, tw, th);
-            float hv = hover(3000 + i, hot, dt);
-            int yy = y + Math.round((1f - e) * 10f) - Math.round(hv * 2f);
-            card(g, it, x, yy, tw, th, Crates.owns(it.id()), false, hv, t * 0.8f);
-            if (e < 1f) Draw.rrect(g, x, yy, tw, th, 5, Draw.rgba(PANEL, 1f - e));
-            if (hot) hoverIt = it;
-            hit(H_INSPECT, i, x, y, tw, th);
-        }
-        int oy = top + 12 + rows * (th + gap) + 4;
-        Rarity[] rs = Rarity.values();
-        if (rw < 260) {
-            int x = rx;
-            for (int i = rs.length - 1; i >= 0; i--) {
-                String o = rs[i].odds();
-                Draw.rrect(g, x, oy + 1, 6, 6, 3, rs[i].tint());
-                Draw.text(g, o, x + 8, oy, 0xFFB0BEDC);
-                x += 8 + Draw.width(o) + 7;
-            }
-            Draw.text(g, Draw.fit("Chroma → Mortal", rw), rx, oy + 11, FAINT);
-        } else {
-            for (int i = rs.length - 1, k = 0; i >= 0; i--, k++) {
-                if (oy + (k / 3) * 11 > bottom - 8) break;
-                int x = rx + (k % 3) * (rw / 3), y = oy + (k / 3) * 11;
-                Draw.rrect(g, x, y + 1, 6, 6, 3, rs[i].tint());
-                Draw.text(g, rs[i].label + " " + rs[i].odds(), x + 9, y, 0xFFB0BEDC);
-            }
-        }
-        if (hoverIt != null) tooltip(g, mx, my, hoverIt);
+    private void cratesTab(GuiGraphics g, float x0, float y0, float w0, float h0, float t, float dt) {
+        int n = Crates.CRATES.size();
+        float gap = 14;
+        float lw = Math.max(150, Math.min(220, w0 * 0.23f));
+        float sw = Math.max(196, Math.min(290, w0 * 0.31f));
+        float rx = x0 + lw + gap + sw + gap, rw = x0 + w0 - rx;
+        crateList(g, x0, y0, lw, h0, n, t, dt);
+        stage(g, x0 + lw + gap, y0, sw, h0, t, dt);
+        contents(g, rx, y0, rw, h0, t, dt);
     }
 
-    private void tooltip(GuiGraphics g, int mx, int my, Item it) {
-        String n = nameOf(it.id());
+    /** The crates down the left: a picture, the name, how much of it you have collected and how often it was opened. */
+    private void crateList(GuiGraphics g, float x0, float y0, float lw, float h0, int n, float t, float dt) {
+        float rgap = 6;
+        float rowH = Math.min(56, (h0 - (n - 1) * rgap) / n);
+        float wantBar = y0 + sel * (rowH + rgap);
+        if (selBarY < 0) selBarY = wantBar;
+        selBarY = approach(selBarY, wantBar, 16f, dt);
+        for (int i = 0; i < n; i++) {
+            if (i == sel) continue;
+            float y = y0 + i * (rowH + rgap);
+            float hv = hover(2500 + i, hot(x0, y, lw, rowH), dt);
+            rect(g, x0, y, lw, rowH, 10, Draw.mix(SURFACE, SURFACE2, hv));
+            stroke(g, x0, y, lw, rowH, 10, Draw.mix(BORDER, BORDER_HI, hv));
+        }
+        // the selection glides between rows
+        Crate cs0 = Crates.CRATES.get(sel);
+        rect(g, x0, selBarY, lw, rowH, 10, Draw.mix(SURFACE2, cs0.colour, 0.18f), Draw.mix(SURFACE, cs0.colour, 0.07f));
+        stroke(g, x0, selBarY, lw, rowH, 10, Draw.rgba(cs0.colour, 0.8f));
+        rect(g, x0 - 0.5f, selBarY + rowH * 0.28f, 3, rowH * 0.44f, 1.5f, cs0.colour);
+        for (int i = 0; i < n; i++) {
+            Crate c = Crates.CRATES.get(i);
+            float y = y0 + i * (rowH + rgap), cy = y + rowH / 2f;
+            boolean on = i == sel;
+            float hv = on ? 0f : hoverAnim.getOrDefault(2500 + i, 0f);
+            float shift = hv * 2f;
+            float ts = Math.min(44, rowH - 10);
+            crate(g, c, x0 + 12 + ts / 2f + shift, cy + 1, ts, t + i, 0f, 0f, 0f);
+            float tx = x0 + 22 + ts + shift;
+            int times = Crates.openedOf(c.id);
+            float badgeW = 0;
+            if (times > 0 && rowH >= 40) {
+                String b = "×" + times;
+                badgeW = tw(b, F_TINY, Ty.BOLD) + 10;
+                chip(g, x0 + lw - 10 - badgeW, cy, b, c.colour, false);
+                if (hot(x0 + lw - 10 - badgeW, cy - 6, badgeW, 12)) tip = "Opened " + times + (times == 1 ? " time" : " times");
+            }
+            float avail = x0 + lw - 10 - badgeW - 8 - tx;
+            String name = c.name.replace(" Crate", "");
+            int tc = on ? TEXT : Draw.mix(0xFFC2CCE6, TEXT, hv);
+            if (rowH >= 40) {
+                text(g, fit(name, avail, F_BODY + 1, Ty.SEMI), tx, cy - 6, F_BODY + 1, Ty.SEMI, tc);
+                int got = Crates.collected(c), all = c.items.size();
+                String gl = got + "/" + all;
+                float glw = tw(gl, F_TINY, Ty.SEMI);
+                float bw = Math.max(16, Math.min(70, avail - glw - 6));
+                bar(g, tx, cy + 5, bw, 2.5f, got / (float) all, got == all ? GOLD : c.colour);
+                text(g, gl, tx + bw + 6, cy + 6.2f, F_TINY, Ty.SEMI, got == all ? GOLD : FAINT);
+            } else {
+                text(g, fit(name, avail, F_BODY, Ty.SEMI), tx, cy, F_BODY, Ty.SEMI, tc);
+            }
+            hit(H_CRATE, i, x0, y, lw, rowH);
+        }
+    }
+
+    /** The middle: the chosen crate under a spotlight, its name, and everything needed to open it. */
+    private void stage(GuiGraphics g, float sx, float y0, float sw, float h0, float t, float dt) {
+        Crate c = Crates.CRATES.get(sel);
+        rect(g, sx, y0, sw, h0, 14, Draw.mix(SURFACE, c.colour, 0.10f), Draw.mix(PANEL_BOT, c.colour, 0.03f));
+        stroke(g, sx, y0, sw, h0, 14, Draw.mix(BORDER, c.colour, 0.28f));
+        float pad = 16, iw = sw - 2 * pad;
+        float btnH = 30, rowS = 22;
+        float below = 8 + 30 + 10 + 14 + 12 + btnH + 8 + rowS + 8 + rowS + 12 + 14;
+        float cs = Math.max(50, Math.min(Math.min(iw - 16, 190), (h0 - 2 * pad - below) / 0.86f));
+        float stackH = cs * 0.86f + below;
+        float top = y0 + Math.max(pad, (h0 - stackH) / 2f);
+        float ccx = sx + sw / 2f, ccy = top + cs * 0.42f;
+        float fresh = 1f - clamp01((t - selAt) / 0.6f);
+        // spotlight from above and a shadow on the floor
+        scissor(g, sx + 1, y0 + 1, sw - 2, h0 - 2);
+        glow(g, ccx - cs * 0.30f, ccy - cs * 0.22f, cs * 0.60f, cs * 0.44f, 20, c.colour, cs * 0.55f, 0.15f + 0.12f * fresh);
+        glow(g, ccx - cs * 0.36f, top + cs * 0.80f, cs * 0.72f, 1.5f, 1, 0xFF000000, cs * 0.09f, 0.5f);
+        float pop = outBack((t - selAt) / 0.45f);
+        float bob = (float) Math.sin(t * 1.6f) * Math.max(1.2f, cs / 55f);
+        crate(g, c, ccx, ccy + bob, cs * (0.84f + 0.16f * pop), t, previewLid, 0f, 0.25f * (1f - clamp01((t - selAt) / 0.5f)));
+        g.disableScissor();
+        lastCrateCx = ccx;
+        lastCrateCy = ccy + bob;
+        lastCrateSize = cs;
+
+        float y = top + cs * 0.86f + 8;
+        float ta = outCubic((t - selAt - 0.08f) / 0.3f), lift = (1f - ta) * 5f;
+        textC(g, fit(c.name, iw, F_TITLE - 0.5f, Ty.XBOLD), ccx, y + 7 + lift, F_TITLE - 0.5f, Ty.XBOLD, Draw.rgba(Draw.lighten(c.colour, 0.18f), ta));
+        textC(g, fit(c.tagline, iw, F_SMALL, Ty.MED), ccx, y + 22 + lift, F_SMALL, Ty.MED, Draw.rgba(SUB, ta));
+        y += 30 + 10;
+        // keys, and how many crates they open
+        int keys = Crates.keys(), opens = keys / Crates.KEYS_PER_OPEN;
+        String a = String.valueOf(keys), b = String.valueOf(opens);
+        float aw = tw("Keys", F_SMALL, Ty.MED) + 4 + tw(a, F_BODY, Ty.BOLD);
+        float bw2 = tw("Opens", F_SMALL, Ty.MED) + 4 + tw(b, F_BODY, Ty.BOLD);
+        float rowW = aw + 22 + bw2, ax = ccx - rowW / 2f, cy = y + 7;
+        text(g, "Keys", ax, cy, F_SMALL, Ty.MED, SUB);
+        text(g, a, ax + tw("Keys", F_SMALL, Ty.MED) + 4, cy, F_BODY, Ty.BOLD, opens > 0 ? TEXT : RED);
+        dot(g, ax + aw + 11, cy, 1.4f, FAINT);
+        float bx = ax + aw + 22;
+        text(g, "Opens", bx, cy, F_SMALL, Ty.MED, SUB);
+        text(g, b, bx + tw("Opens", F_SMALL, Ty.MED) + 4, cy, F_BODY, Ty.BOLD, opens > 0 ? TEXT : FAINT);
+        y += 14 + 12;
+        // open one, two or three at once
+        int can = Crates.canOpenCount();
+        int n = Math.max(1, Math.min(Crates.multi(), Math.max(1, can)));
+        boolean canOpen = can >= 1;
+        String ol = !canOpen ? "Needs " + Crates.KEYS_PER_OPEN + " keys" : n == 1 ? "Open crate" : "Open " + n + " crates";
+        button(g, H_OPEN, sx + pad, y, iw, btnH, ol, canOpen ? n * Crates.KEYS_PER_OPEN + " keys" : null, c.colour, canOpen, true, t, dt);
+        y += btnH + 8;
+        // how many at once, auto open and quick open
+        float segW = Math.max(66, iw * 0.36f), tgW = (iw - segW - 12) / 2f;
+        float scy = y + rowS / 2f;
+        rect(g, sx + pad, y, segW, rowS, 8, 0xFF090D1A);
+        stroke(g, sx + pad, y, segW, rowS, 8, BORDER_HI);
+        float cellW = (segW - 4) / Crates.MAX_MULTI;
+        for (int i = 1; i <= Crates.MAX_MULTI; i++) {
+            float cx2 = sx + pad + 2 + (i - 1) * cellW;
+            boolean ok = i <= Math.max(1, can), on = i == n;
+            boolean h = ok && hot(cx2, y, cellW, rowS);
+            float hv = hover(6100 + i, h, dt);
+            if (on) rect(g, cx2, y + 2, cellW, rowS - 4, 6, Draw.mix(c.colour, 0xFF0A0E1A, 0.55f));
+            else if (hv > 0.01f) rect(g, cx2, y + 2, cellW, rowS - 4, 6, Draw.rgba(RAISED, hv));
+            textC(g, "×" + i, cx2 + cellW / 2f, scy, F_SMALL, Ty.BOLD, on ? TEXT : ok ? Draw.mix(SUB, TEXT, hv) : 0xFF3A4766);
+            if (ok) hit(H_MULTI, i, cx2, y, cellW, rowS);
+            else if (hot(cx2, y, cellW, rowS)) tip = "Opening " + i + " at once takes " + i * Crates.KEYS_PER_OPEN + " keys";
+        }
+        float ax2 = sx + pad + segW + 6;
+        toggle(g, H_AUTO, ax2, y, tgW, rowS, "Auto", Crates.auto(), 6002, dt);
+        if (hot(ax2, y, tgW, rowS)) tip = Crates.auto() ? "Auto open is on: opens again after each reveal while keys last" : "Auto open: keep opening after each reveal while keys last";
+        float qx = ax2 + tgW + 6;
+        toggle(g, H_QUICK, qx, y, tgW, rowS, "Quick", Crates.quick(), 6000, dt);
+        if (hot(qx, y, tgW, rowS)) tip = Crates.quick() ? "Quick open is on: a shorter opening" : "Quick open: a shorter opening animation";
+        y += rowS + 8;
+        // buy keys with tokens
+        boolean canBuy = Crates.tokens() >= Crates.KEY_PRICE;
+        String br = canBuy ? Crates.KEY_PRICE + " tokens" : (Crates.KEY_PRICE - Crates.tokens()) + " more tokens";
+        button(g, H_BUY, sx + pad, y, iw, rowS, "Buy key", br, GOLD, canBuy, false, t, dt);
+        if (canBuy && hot(sx + pad, y, iw, rowS) && Crates.tokens() >= Crates.KEY_PRICE * 2) {
+            tip = "Shift-click to buy " + Math.min(Crates.KEYS_PER_OPEN, Crates.tokens() / Crates.KEY_PRICE) + " at once";
+        }
+        y += rowS + 12;
+        // pity: a guaranteed Divine or better after a dry run
+        int pi = Crates.pityIn();
+        float pf = (Crates.PITY - pi) / (float) Crates.PITY;
+        String pl = pi <= 1 ? "Next open: Divine or better guaranteed" : "Divine or better guaranteed in " + pi + " opens";
+        text(g, fit(pl, iw, F_TINY + 0.3f, Ty.MED), sx + pad, y + 2, F_TINY + 0.3f, Ty.MED, pi <= 3 ? PITY : SUB);
+        bar(g, sx + pad, y + 8, iw, 2.5f, pf, PITY);
+    }
+
+    /** A labelled on/off switch. */
+    private void toggle(GuiGraphics g, int kind, float x, float y, float w, float h, String label, boolean on, int key, float dt) {
+        float cy = y + h / 2f;
+        boolean hh = hot(x, y, w, h);
+        float v = hover(key, on, dt), hv = hover(key + 50, hh, dt);
+        rect(g, x, y, w, h, 8, Draw.mix(SURFACE2, RAISED, hv));
+        stroke(g, x, y, w, h, 8, Draw.mix(BORDER_HI, GOLD, v * 0.55f + hv * 0.2f));
+        float sw = 16, lw = tw(label, F_SMALL, Ty.SEMI), x0 = x + w / 2f - (sw + 5 + lw) / 2f;
+        rect(g, x0, cy - 4, sw, 8, 4, Draw.mix(0xFF26314F, GOLD, v));
+        dot(g, x0 + 4 + v * 8, cy, 3f, Draw.mix(0xFFB8C4E2, 0xFF1A1206, v));
+        text(g, label, x0 + sw + 5, cy, F_SMALL, Ty.SEMI, on ? Draw.lighten(GOLD, 0.2f) : SUB);
+        hit(kind, 0, x, y, w, h);
+    }
+
+    /** The right: what is in the chosen crate, the rarest knife as a big tile, and the odds. */
+    private void contents(GuiGraphics g, float rx, float y0, float rw, float h0, float t, float dt) {
+        Crate c = Crates.CRATES.get(sel);
+        List<Item> items = c.items;
+        text(g, "Contents", rx, y0 + 6, F_H, Ty.BOLD, TEXT);
+        int got = Crates.collected(c);
+        textR(g, got + " / " + items.size() + " collected", rx + rw, y0 + 6, F_SMALL, Ty.MED, got == items.size() ? GOLD : SUB);
+        bar(g, rx, y0 + 16, rw, 2.5f, got / (float) items.size(), c.colour);
+
+        // the odds, as a legend along the bottom
+        Rarity[] rs = Rarity.values();
+        int lcols = rw >= 400 ? 6 : 3;
+        int lrows = (rs.length + lcols - 1) / lcols;
+        float legendH = lrows * 13;
+        float ly = y0 + h0 - legendH;
+        for (int i = rs.length - 1, k = 0; i >= 0; i--, k++) {
+            float lx = rx + (k % lcols) * (rw / lcols), lcy = ly + (k / lcols) * 13 + 6;
+            dot(g, lx + 3, lcy, 2.8f, rs[i].tint());
+            text(g, rs[i].label, lx + 9, lcy, F_TINY + 0.3f, Ty.MED, 0xFFB4C0DC);
+            text(g, rs[i].odds(), lx + 12 + tw(rs[i].label, F_TINY + 0.3f, Ty.MED), lcy, F_TINY + 0.3f, Ty.SEMI, FAINT);
+        }
+
+        float gy = y0 + 26, gh = ly - 8 - gy;
+        int cols = 4;
+        float gap = 6;
+        boolean featured = items.size() >= 9 && items.get(0).rarity() == Rarity.CHROMA;
+        int slots = featured ? items.size() - 1 + 4 : items.size();
+        int rows = (slots + cols - 1) / cols;
+        float tw0 = (rw - (cols - 1) * gap) / cols;
+        float th = Math.min(tw0 * 1.05f, (gh - (rows - 1) * gap) / rows);
+        // the free cells, row by row, skipping the featured block in the top left
+        List<float[]> cells = new ArrayList<>();
+        for (int r = 0; r < rows; r++) {
+            for (int k = 0; k < cols; k++) {
+                if (featured && r < 2 && k < 2) continue;
+                cells.add(new float[] {rx + k * (tw0 + gap), gy + r * (th + gap), tw0, th});
+            }
+        }
+        int ci = 0;
+        cardsBegin();
+        for (int i = 0; i < items.size(); i++) {
+            Item it = items.get(i);
+            boolean big = featured && i == 0;
+            float[] b = big ? new float[] {rx, gy, 2 * tw0 + gap, 2 * th + gap} : cells.get(Math.min(ci++, cells.size() - 1));
+            float e = outCubic((t - selAt - 0.04f - i * 0.028f) / 0.28f);
+            if (e <= 0f) continue;
+            boolean h = hot(b[0], b[1], b[2], b[3]);
+            float hv = hover(3000 + i, h, dt);
+            float yy = b[1] + (1f - e) * 8f - hv * 1.5f;
+            Card cd = cardAdd().set(it, b[0], yy, b[2], b[3], Crates.owns(it.id()), false, hv, big);
+            cd.veil = 1f - e;
+            cd.veilColour = PANEL_BOT;
+            if (h) tipItem = it;
+            hit(H_INSPECT, i, b[0], b[1], b[2], b[3]);
+        }
+        cardsDraw(g, t * 0.8f);
+    }
+
+    private void tooltip(GuiGraphics g, Item it) {
+        String n = nameOf(it.id()).replace(" · ", " ");
         Crate from = Crates.crateOf(it.id());
-        String l2 = it.rarity().label + (from == null ? "" : "  ·  " + from.name);
-        String l3 = Crates.owns(it.id()) ? "Owned" : "Not owned yet";
-        int w = Math.max(Draw.widthBold(n), Math.max(Draw.width(l2), Draw.width(l3))) + 16;
-        int x = Math.min(mx + 10, width - w - 4), y = Math.min(my + 10, height - 44);
-        Draw.rrect(g, x, y, w, 40, 5, 0xF00A0E1C);
-        Draw.rrectLine(g, x, y, w, 40, 5, it.rarity().tint());
-        Draw.bold(g, n, x + 8, y + 5, TEXT);
-        Draw.text(g, l2, x + 8, y + 17, it.rarity().tint());
-        Draw.text(g, l3, x + 8, y + 28, Crates.owns(it.id()) ? 0xFF6FE3A0 : FAINT);
+        String l2 = it.rarity().label + "  ·  " + it.rarity().odds() + (from == null ? "  ·  starter" : "  ·  " + from.name);
+        boolean own = Crates.owns(it.id());
+        String l3 = own ? "Owned  ·  click to inspect" : "Not owned yet  ·  click to inspect";
+        float w = Math.max(tw(n, F_BODY + 0.5f, Ty.BOLD), Math.max(tw(l2, F_SMALL, Ty.MED), tw(l3, F_SMALL, Ty.MED))) + 20, h = 44;
+        float x = Math.min(mxu + 12, W - w - 6), y = Math.min(myu + 12, H - h - 6);
+        Draw.shadow(g, P(x), P(y), P(w), P(h), P(8), P(8), 0.6f);
+        rect(g, x, y, w, h, 8, 0xF8121A30, 0xF80B1020);
+        stroke(g, x, y, w, h, 8, Draw.rgba(it.rarity().tint(), 0.8f));
+        fill(g, x + 10, y + 1, 18, 1.2f, it.rarity().tint());
+        text(g, n, x + 10, y + 12, F_BODY + 0.5f, Ty.BOLD, TEXT);
+        text(g, l2, x + 10, y + 24, F_SMALL, Ty.MED, it.rarity().tint());
+        text(g, l3, x + 10, y + 35, F_SMALL, Ty.MED, own ? GREEN : FAINT);
+    }
+
+    private void textTip(GuiGraphics g, String s0) {
+        float w = tw(s0, F_SMALL, Ty.MED) + 16, h = 18;
+        float x = Math.min(mxu + 12, W - w - 6), y = Math.min(myu + 14, H - h - 6);
+        rect(g, x, y, w, h, 6, 0xF8121A30);
+        stroke(g, x, y, w, h, 6, BORDER_HI);
+        text(g, s0, x + 8, y + h / 2f, F_SMALL, Ty.MED, SUB);
     }
 
     // ------------------------------------------------------------------ collection tab
@@ -799,205 +1316,282 @@ public final class CratesScreen extends Screen {
         return ALL;
     }
 
-    private void collectionTab(GuiGraphics g, int mx, int my, float t, float dt) {
-        int top = py + 62, bottom = py + ph - 34;
+    private void collectionTab(GuiGraphics g, float x0, float y0, float w0, float h0, float t, float dt) {
         List<Item> all = allItems();
-        Draw.bold(g, "YOUR KNIVES", px + 14, top, TEXT);
-        Draw.text(g, Crates.ownedCount() + " / " + all.size() + " collected  ·  click one you own to hold it", px + 14 + Draw.widthBold("YOUR KNIVES") + 8, top, SUB);
-        int cols = Math.max(4, (pw - 24) / 74);
-        int gap = 5;
-        int tw = (pw - 24 - (cols - 1) * gap) / cols, th = 60;
-        int gy = top + 14, gh = bottom - gy;
+        int ownedN = Crates.ownedCount();
+        text(g, "Your knives", x0, y0 + 6, F_H, Ty.BOLD, TEXT);
+        float hw = tw("Your knives", F_H, Ty.BOLD);
+        text(g, ownedN + " of " + all.size() + " collected", x0 + hw + 10, y0 + 6.5f, F_SMALL, Ty.MED, SUB);
+        textR(g, "Click a knife you own to hold it", x0 + w0, y0 + 6.5f, F_SMALL, Ty.MED, FAINT);
+        bar(g, x0, y0 + 16, w0, 2.5f, ownedN / (float) all.size(), GOLD);
+        float gy = y0 + 26, gh = h0 - 26;
+        float gap = 8;
+        int cols = Math.max(4, (int) ((w0 + gap) / (122 + gap)));
+        float tw0 = (w0 - 8 - (cols - 1) * gap) / cols, th = Math.round(tw0 * 0.78f);
         int rows = (all.size() + cols - 1) / cols;
-        int maxScroll = Math.max(0, rows * (th + gap) - gh);
+        float maxScroll = Math.max(0, rows * (th + gap) - gap - gh);
         collScroll = Math.max(0, Math.min(maxScroll, collScroll));
         collScrollShown = approach(collScrollShown, collScroll, 18f, dt);
-        g.enableScissor(px + 10, gy, px + pw - 10, gy + gh);
-        Item hoverIt = null;
+        scissor(g, x0 - 4, gy, w0 + 8, gh);
         int held = KnifeSwing.heldHd();
+        boolean inView = myu >= gy && myu < gy + gh;
+        cardsBegin();
+        float heldX = 0, heldY = 0;
+        boolean heldShown = false;
         for (int i = 0; i < all.size(); i++) {
-            int x = px + 12 + (i % cols) * (tw + gap), y = gy + (i / cols) * (th + gap) - Math.round(collScrollShown);
+            float x = x0 + (i % cols) * (tw0 + gap), y = gy + (i / cols) * (th + gap) - collScrollShown;
             if (y + th < gy || y > gy + gh) continue;
             Item it = all.get(i);
             boolean own = Crates.owns(it.id());
-            boolean hot = in(mx, my, x, y, tw, th) && my >= gy && my < gy + gh;
-            float hv = own ? hover(4000 + i, hot, dt) : 0f;
-            int yy = y - Math.round(hv * 2f);
-            card(g, it, x, yy, tw, th, false, !own, hv, t * 0.8f);
+            boolean h = inView && hot(x, y, tw0, th);
+            float hv = hover(4000 + i, h, dt) * (own ? 1f : 0.35f);
+            float yy = y - hv * 1.5f;
+            cardAdd().set(it, x, yy, tw0, th, false, !own, hv, false);
             if (own && Crates.hdOf(it.id()) == held) {
-                Draw.rrectLine(g, x - 1, yy - 1, tw + 2, th + 2, 6, 0xFF6FE3A0);
-                Draw.text(g, "HELD", x + 4, yy + 4, 0xFF6FE3A0);
+                heldShown = true;
+                heldX = x;
+                heldY = yy;
             }
-            if (hot) {
-                hoverIt = it;
-                hit(H_COLL, i, x, y, tw, th);
+            if (h) {
+                tipItem = it;
+                hit(H_COLL, i, x, y, tw0, th);
             }
+        }
+        cardsDraw(g, t * 0.8f);
+        if (heldShown) {
+            stroke(g, heldX - 1.5f, heldY - 1.5f, tw0 + 3, th + 3, 8.5f, GREEN);
+            chip(g, heldX + 6, heldY + 10, "IN HAND", GREEN, true);
         }
         g.disableScissor();
         if (maxScroll > 0) {
-            int bh = Math.max(16, gh * gh / (rows * (th + gap)));
-            int by = gy + Math.round((gh - bh) * collScrollShown / maxScroll);
-            Draw.rrect(g, px + pw - 9, by, 3, bh, 1, 0xFF2A3E6A);
+            float bh = Math.max(20, gh * gh / (rows * (th + gap)));
+            float by = gy + (gh - bh) * collScrollShown / maxScroll;
+            rect(g, x0 + w0 - 2.5f, gy, 2.5f, gh, 1.25f, 0xFF121A30);
+            rect(g, x0 + w0 - 2.5f, by, 2.5f, bh, 1.25f, BORDER_HI);
         }
-        if (hoverIt != null) tooltip(g, mx, my, hoverIt);
-    }
-
-    // ------------------------------------------------------------------ redeem tab
-    private void redeemTab(GuiGraphics g, int mx, int my, float t, float dt) {
-        int cx = px + pw / 2;
-        int top = py + 62;
-        Draw.boldCenterS(g, "REDEEM A CODE", cx, top, TEXT, 1.4f);
-        Draw.textCenter(g, "Promo codes unlock free crates, each with its own key.", cx, top + 18, SUB);
-        int bw = 220;
-        int bx = cx - bw / 2, by = py + 90;
-        boolean focus = codeBox.isFocused();
-        float fv = hover(5000, focus, dt);
-        Draw.glow(g, bx, by, bw, 22, 6, GOLD, 8, 0.06f + 0.16f * fv);
-        Draw.rrect(g, bx, by, bw, 22, 6, 0xFF0C1222);
-        Draw.rrectLine(g, bx, by, bw, 22, 6, Draw.mix(0xFF2A3E6A, GOLD, fv));
-        hit(H_FIELD, -1, bx, by, bw, 22);
-        button(g, H_REDEEM, cx - 60, by + 30, 120, 20, "REDEEM", GOLD, !codeBox.getValue().isBlank(), true, mx, my, t, dt);
-        if (!codeMsg.isEmpty()) {
-            long since = com.zlorbie788.zeus.core.Clock.millis() - codeAt;
-            float a = Math.min(1f, since / 200f);
-            float shake = codeOk ? 0f : (1f - Math.min(1f, since / 350f)) * 4f * (float) Math.sin(since / 18.0);
-            Draw.textCenter(g, codeMsg, cx + Math.round(shake), by + 58, Draw.rgba(codeOk ? 0xFF6FE3A0 : 0xFFFF7A7A, a));
-        }
-        int iy = by + 70, iw = Math.min(pw - 24, 430);
-        if (iy + 62 > py + ph - 32) {
-            Draw.textCenter(g, Draw.fit("1 token per 5 min of play  ·  a key costs " + Crates.KEY_PRICE + " tokens, a crate takes " + Crates.KEYS_PER_OPEN + "  ·  free crate every 90 min", pw - 24), cx, by + 72, FAINT);
-            return;
-        }
-        Draw.rrect(g, cx - iw / 2, iy, iw, 62, 8, 0xFF0B1124);
-        Draw.rrectLine(g, cx - iw / 2, iy, iw, 62, 8, 0xFF1C2A48);
-        Draw.bold(g, "HOW TO EARN", cx - iw / 2 + 10, iy + 6, GOLD);
-        Draw.textRight(g, "opened " + Crates.opened(), cx + iw / 2 - 10, iy + 6, FAINT);
-        String[] lines = {"1 Zeus token for every 5 minutes of active play. Standing still earns nothing.",
-                "A key costs " + Crates.KEY_PRICE + " tokens and a crate takes " + Crates.KEYS_PER_OPEN + " keys. A free crate drops every 90 minutes of play.",
-                "Already own the knife? You get tokens back instead, more for rarer drops."};
-        for (int i = 0; i < lines.length; i++) Draw.text(g, Draw.fit("•  " + lines[i], iw - 20), cx - iw / 2 + 10, iy + 19 + i * 13, SUB);
     }
 
     // ------------------------------------------------------------------ history tab
     private static String ago(long at) {
-        long s = Math.max(0, (com.zlorbie788.zeus.core.Clock.millis() - at) / 1000);
-        if (s < 60) return "just now";
-        if (s < 3600) return (s / 60) + " min ago";
-        if (s < 86400) return (s / 3600) + " h ago";
-        return (s / 86400) + " d ago";
+        long sec = Math.max(0, (com.zlorbie788.zeus.core.Clock.millis() - at) / 1000);
+        if (sec < 60) return "just now";
+        if (sec < 3600) return (sec / 60) + " min ago";
+        if (sec < 86400) return (sec / 3600) + " h ago";
+        return (sec / 86400) + " d ago";
     }
 
-    private void dailyTab(GuiGraphics g, int mx, int my, float t, float dt) {
-        int top = py + 62, bottom = py + ph - 34;
-        int cw = Math.min(pw - 28, 460), cx = px + (pw - cw) / 2;
-        Draw.bold(g, "DAILY QUESTS", cx, top + 2, GOLD);
+    private void historyTab(GuiGraphics g, float x0, float y0, float w0, float h0, float t, float dt) {
+        List<Crates.Drop> hist = Crates.history();
+        // left: your luck, drop counts per rarity and the best drop
+        float sw = Math.max(170, Math.min(230, w0 * 0.28f));
+        rect(g, x0, y0, sw, h0, 12, SURFACE2, SURFACE);
+        stroke(g, x0, y0, sw, h0, 12, BORDER);
+        float ix = x0 + 14, iw = sw - 28, y = y0 + 16;
+        text(g, "Your stats", ix, y, F_H, Ty.BOLD, TEXT);
+        y += 14;
+        // lifetime numbers, two to a row
+        String fav = "-";
+        int favN = 0;
+        for (Crate c : Crates.CRATES) {
+            int o = Crates.openedOf(c.id);
+            if (o > favN) {
+                favN = o;
+                fav = c.name.replace(" Crate", "");
+            }
+        }
+        String[][] tiles = {
+                {String.valueOf(Crates.opened()), "Crates opened"},
+                {Crates.uniqueFound() + "/" + (allItems().size() - 1), "Knives found"},
+                {String.valueOf(Crates.duplicates()), "Duplicates"},
+                {String.valueOf(Crates.earned()), "Tokens earned"},
+                {String.valueOf(Crates.keysBought()), "Keys bought"},
+                {String.valueOf(Crates.bestStreak()), "Best streak"},
+                {fav, "Favourite crate"},
+                {String.valueOf(Crates.refunded()), "Tokens refunded"}};
+        float tgap = 6, tw2 = (iw - tgap) / 2f, th2 = 30;
+        int tileRows = h0 < 330 ? 2 : h0 < 400 ? 3 : 4;
+        for (int i = 0; i < tileRows * 2; i++) {
+            float tx = ix + (i % 2) * (tw2 + tgap), ty = y + (i / 2) * (th2 + tgap);
+            rect(g, tx, ty, tw2, th2, 7, 0xFF0B1122);
+            stroke(g, tx, ty, tw2, th2, 7, BORDER);
+            text(g, fit(tiles[i][0], tw2 - 14, F_BODY + 1.5f, Ty.XBOLD), tx + 8, ty + 11, F_BODY + 1.5f, Ty.XBOLD, i == 0 ? GOLD : TEXT);
+            text(g, fit(tiles[i][1], tw2 - 14, F_TINY, Ty.MED), tx + 8, ty + 23, F_TINY, Ty.MED, FAINT);
+        }
+        y += tileRows * (th2 + tgap) + 6;
+        text(g, "RECENT LUCK", ix, y, F_TINY, Ty.BOLD, FAINT);
+        y += 9;
+        int[] by = Crates.dropsByRarity();
+        int total = Math.max(1, hist.size());
+        Rarity[] rs = Rarity.values();
+        float grow = outCubic((t - tabAt) / 0.6f);
+        for (int i = rs.length - 1; i >= 0; i--) {
+            if (y > y0 + h0 - 20) break;
+            dot(g, ix + 3, y + 4, 2.8f, rs[i].tint());
+            text(g, rs[i].label, ix + 10, y + 4, F_SMALL, Ty.MED, 0xFFB4C0DC);
+            textR(g, String.valueOf(by[i]), ix + iw, y + 4, F_SMALL, Ty.SEMI, by[i] > 0 ? TEXT : FAINT);
+            bar(g, ix, y + 11, iw, 2.5f, grow * by[i] / (float) total, rs[i].tint());
+            y += 19;
+        }
+        Crates.Drop best = null;
+        for (Crates.Drop d : hist) if (best == null || Crates.rarityOf(d.knife()).ordinal() > Crates.rarityOf(best.knife()).ordinal()) best = d;
+        if (best != null && y0 + h0 - y > 56) {
+            fill(g, ix, y + 2, iw, 1f / s, BORDER);
+            text(g, "BEST DROP", ix, y + 11, F_TINY, Ty.BOLD, FAINT);
+            float bh = Math.min(76, y0 + h0 - y - 44);
+            Rarity br = Crates.rarityOf(best.knife());
+            glow(g, x0 + sw / 2f - 1, y + 20 + bh / 2f - 1, 2, 2, 1, br.tint(), bh * 0.5f, 0.18f);
+            knife(g, kindOf(best.knife()), ix, y + 18, iw, bh, false, 0f);
+            textC(g, fit(nameOf(best.knife()).replace(" · ", " "), iw, F_BODY, Ty.SEMI), x0 + sw / 2f, y + 26 + bh, F_BODY, Ty.SEMI, br.tint());
+        }
+        // right: the list of drops
+        float lx = x0 + sw + 14, lw = x0 + w0 - lx;
+        text(g, "Recent drops", lx, y0 + 6, F_H, Ty.BOLD, TEXT);
+        if (!hist.isEmpty()) textR(g, "Last " + hist.size(), lx + lw, y0 + 6.5f, F_SMALL, Ty.MED, FAINT);
+        float gy = y0 + 20, gh = h0 - 20;
+        if (hist.isEmpty()) {
+            float ecy = gy + gh / 2f;
+            rect(g, lx, gy, lw, gh, 12, 0xFF0A0F1E);
+            stroke(g, lx, gy, lw, gh, 12, BORDER);
+            textC(g, "Nothing opened yet", lx + lw / 2f, ecy - 18, F_H, Ty.BOLD, SUB);
+            textC(g, "Every knife you unbox will show up here.", lx + lw / 2f, ecy - 4, F_SMALL, Ty.MED, FAINT);
+            float bw = 110;
+            button(g, H_TAB, lx + lw / 2f - bw / 2f, ecy + 10, bw, 22, "Go to crates", null, GOLD, true, false, t, dt);
+            return;
+        }
+        float rowH = 34, gap = 5;
+        float maxScroll = Math.max(0, hist.size() * (rowH + gap) - gap - gh);
+        histScroll = Math.max(0, Math.min(maxScroll, histScroll));
+        histScrollShown = approach(histScrollShown, histScroll, 18f, dt);
+        scissor(g, lx - 2, gy, lw + 4, gh);
+        boolean inView = myu >= gy && myu < gy + gh;
+        for (int i = 0; i < hist.size(); i++) {
+            float y1 = gy + i * (rowH + gap) - histScrollShown;
+            if (y1 + rowH < gy || y1 > gy + gh) continue;
+            Crates.Drop d = hist.get(i);
+            Rarity r = Crates.rarityOf(d.knife());
+            float e = outCubic((t - tabAt - i * 0.025f) / 0.25f);
+            float ox = (1f - e) * 12f;
+            boolean h = inView && hot(lx, y1, lw, rowH);
+            float hv = hover(7000 + i, h, dt);
+            rect(g, lx + ox, y1, lw, rowH, 8, Draw.mix(SURFACE, Draw.mix(SURFACE, r.tint(), 0.16f), hv));
+            stroke(g, lx + ox, y1, lw, rowH, 8, Draw.mix(BORDER, Draw.rgba(r.tint(), 0.6f), 0.2f + 0.5f * hv));
+            rect(g, lx + ox, y1 + 9, 2.5f, rowH - 18, 1.2f, r.tint());
+            knife(g, kindOf(d.knife()), lx + ox + 10, y1 + 3, 54, rowH - 6, false, 0f);
+            Crates.Crate cr = Crates.crate(d.crate());
+            String badge = d.duplicate() ? "DUPLICATE" : "NEW";
+            float bw = tw(badge, F_TINY, Ty.BOLD) + 10;
+            float right = lx + ox + lw - 12;
+            float nameW = right - Math.max(bw, tw(ago(d.at()), F_SMALL, Ty.MED)) - 12 - (lx + ox + 72);
+            text(g, fit(nameOf(d.knife()).replace(" · ", " "), nameW, F_BODY, Ty.BOLD), lx + ox + 72, y1 + 11, F_BODY, Ty.BOLD, TEXT);
+            text(g, fit(r.label + (cr == null ? "" : "  ·  " + cr.name), nameW, F_SMALL, Ty.MED), lx + ox + 72, y1 + 23, F_SMALL, Ty.MED, r.tint());
+            textR(g, ago(d.at()), right, y1 + 11, F_SMALL, Ty.MED, FAINT);
+            chip(g, right - bw, y1 + 23, badge, d.duplicate() ? FAINT : GREEN, false);
+            if (e < 1f) rect(g, lx + ox, y1, lw, rowH, 8, Draw.rgba(PANEL_BOT, 1f - e));
+            if (h) hit(H_HIST, i, lx, y1, lw, rowH);
+        }
+        g.disableScissor();
+        if (maxScroll > 0) {
+            float bh = Math.max(20, gh * gh / (hist.size() * (rowH + gap)));
+            float by2 = gy + (gh - bh) * histScrollShown / maxScroll;
+            rect(g, lx + lw + 4, by2, 2.5f, bh, 1.25f, BORDER_HI);
+        }
+    }
+
+    // ------------------------------------------------------------------ redeem tab
+    private void redeemTab(GuiGraphics g, float x0, float y0, float w0, float h0, float t, float dt) {
+        float cw = Math.min(460, w0), cx = x0 + w0 / 2f, x = cx - cw / 2f;
+        float c1 = 132, c2 = 116;
+        boolean both = h0 >= c1 + 12 + c2;
+        float y = y0 + Math.max(0, (h0 - (both ? c1 + 12 + c2 : c1)) / 2f);
+        rect(g, x, y, cw, c1, 14, SURFACE2, SURFACE);
+        stroke(g, x, y, cw, c1, 14, BORDER);
+        textC(g, "Redeem a code", cx, y + 22, F_TITLE, Ty.XBOLD, TEXT);
+        textC(g, "Promo codes give keys and tokens to open more crates.", cx, y + 38, F_SMALL, Ty.MED, SUB);
+        float bw = 96, fh = 30, fx = x + 24, fy = y + 54, fw = cw - 48 - bw - 8;
+        float fv = hover(5000, codeBox != null && codeBox.isFocused(), dt);
+        glow(g, fx, fy, fw, fh, 8, GOLD, 8, 0.04f + 0.14f * fv);
+        rect(g, fx, fy, fw, fh, 8, 0xFF090D1A);
+        stroke(g, fx, fy, fw, fh, 8, Draw.mix(BORDER_HI, GOLD, fv));
+        hit(H_FIELD, -1, fx, fy, fw, fh);
+        placeCodeBox(fx + 10, fy + fh / 2f, fw - 20);
+        String val = codeBox == null ? "" : codeBox.getValue();
+        float tcy = fy + fh / 2f, tx = fx + 12;
+        if (val.isEmpty()) text(g, "ZEUS-XXXX-XXXX", tx, tcy, F_BODY + 1, Ty.MED, 0xFF3A4766);
+        else text(g, fit(val, fw - 24, F_BODY + 1, Ty.SEMI), tx, tcy, F_BODY + 1, Ty.SEMI, TEXT);
+        if (codeBox != null && codeBox.isFocused() && (int) (t * 1.9f) % 2 == 0) {
+            int cur = Math.max(0, Math.min(val.length(), codeBox.getCursorPosition()));
+            float cx2 = tx + tw(val.substring(0, cur), F_BODY + 1, Ty.SEMI) + 0.6f;
+            fill(g, cx2, tcy - 6, 1.2f, 12, GOLD);
+        }
+        button(g, H_REDEEM, fx + fw + 8, fy, bw, fh, "Redeem", null, GOLD, codeBox != null && !codeBox.getValue().isBlank(), true, t, dt);
+        if (!codeMsg.isEmpty()) {
+            long since = com.zlorbie788.zeus.core.Clock.millis() - codeAt;
+            float a = Math.min(1f, since / 200f);
+            float shake = codeOk ? 0f : (1f - Math.min(1f, since / 350f)) * 4f * (float) Math.sin(since / 18.0);
+            textC(g, fit(codeMsg, cw - 30, F_BODY, Ty.SEMI), cx + shake, y + 106, F_BODY, Ty.SEMI, Draw.rgba(codeOk ? GREEN : RED, a));
+        }
+        if (!both) return;
+        y += c1 + 12;
+        rect(g, x, y, cw, c2, 14, SURFACE);
+        stroke(g, x, y, cw, c2, 14, BORDER);
+        text(g, "How to earn", x + 18, y + 18, F_H, Ty.BOLD, GOLD);
+        textR(g, "Opened " + Crates.opened(), x + cw - 18, y + 18.5f, F_SMALL, Ty.MED, FAINT);
+        String[] lines = {"1 Zeus token for every 5 minutes of active play. Standing still earns nothing.",
+                "A key costs " + Crates.KEY_PRICE + " tokens and any crate opens with " + Crates.KEYS_PER_OPEN + " keys. Every 90 minutes of play: a free crate.",
+                "Already own the knife? You get tokens back instead, more for rarer drops."};
+        for (int i = 0; i < lines.length; i++) {
+            float ly = y + 42 + i * 24;
+            if (i == 0) coin(g, x + 25, ly, 6);
+            else if (i == 1) keyIcon(g, x + 18, ly, 13, 0xFFC8D4F0);
+            else {
+                dot(g, x + 25, ly, 6, 0xFF1F9A58);
+                tick(g, x + 25, ly, 6.5f, 0xFFFFFFFF);
+            }
+            text(g, fit(lines[i], cw - 62, F_SMALL, Ty.MED), x + 40, ly, F_SMALL, Ty.MED, SUB);
+        }
+    }
+
+    // ------------------------------------------------------------------ daily tab
+    private void dailyTab(GuiGraphics g, float x0, float y0, float w0, float h0, float t) {
+        float cw = Math.min(540, w0), x = x0 + (w0 - cw) / 2f;
+        text(g, "Daily quests", x, y0 + 6, F_H, Ty.BOLD, TEXT);
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
         long left = java.time.Duration.between(now, now.toLocalDate().plusDays(1).atStartOfDay()).toMillis();
-        Draw.textRight(g, "New quests in " + clock(left), cx + cw, top + 2, FAINT);
+        textR(g, "New quests in " + clock(left), x + cw, y0 + 6.5f, F_SMALL, Ty.MED, FAINT);
         List<com.zlorbie788.zeus.core.Quests.Quest> qs = com.zlorbie788.zeus.core.Quests.list();
-        int ch = Math.max(24, Math.min(42, (bottom - top - 16 - 14) / 3 - 6));
-        int y = top + 16;
+        float ch = Math.max(40, Math.min(62, (h0 - 22 - 44) / Math.max(1, qs.size()) - 8));
+        float y = y0 + 22;
         for (int i = 0; i < qs.size(); i++) {
             var q = qs.get(i);
             float in = outCubic((t - tabAt - i * 0.06f) / 0.35f);
-            int yy = y + Math.round((1f - in) * 10f);
-            int edge = q.done() ? 0xFF2F8F64 : 0xFF1C2A48;
-            Draw.rrect(g, cx, yy, cw, ch, 8, q.done() ? 0xFF0C1D18 : 0xFF0B1124);
-            Draw.rrectLine(g, cx, yy, cw, ch, 8, edge);
-            String reward = "+" + q.kind().reward + " TOKENS";
-            int rw = Draw.widthBold(reward) + 14;
-            Draw.rrect(g, cx + cw - rw - 8, yy + 7, rw, 13, 6, q.done() ? 0xFF1F5A40 : 0xFF2A2210);
-            Draw.boldCenter(g, reward, cx + cw - 8 - rw / 2, yy + 10, q.done() ? 0xFF8CF0C0 : GOLD);
+            float yy = y + (1f - in) * 10f, cy = yy + ch / 2f;
+            boolean done = q.done();
+            rect(g, x, yy, cw, ch, 12, done ? Draw.mix(SURFACE2, GREEN, 0.10f) : SURFACE2, SURFACE);
+            stroke(g, x, yy, cw, ch, 12, done ? Draw.rgba(GREEN, 0.5f) : BORDER);
+            dot(g, x + 24, cy, 11, done ? 0xFF1F9A58 : 0xFF1D2846);
+            if (done) tick(g, x + 24, cy, 9, 0xFFFFFFFF);
+            else textC(g, String.valueOf(i + 1), x + 24, cy, F_BODY, Ty.BOLD, SUB);
+            String reward = "+" + q.kind().reward + " tokens";
+            float rw2 = tw(reward, F_SMALL, Ty.BOLD) + 18, rh = 20;
+            float rx = x + cw - 14 - rw2;
+            rect(g, rx, cy - rh / 2f, rw2, rh, rh / 2f, done ? Draw.rgba(GREEN, 0.18f) : Draw.rgba(GOLD, 0.14f));
+            stroke(g, rx, cy - rh / 2f, rw2, rh, rh / 2f, done ? Draw.rgba(GREEN, 0.5f) : Draw.rgba(GOLD, 0.45f));
+            textC(g, reward, rx + rw2 / 2f, cy, F_SMALL, Ty.BOLD, done ? GREEN : GOLD);
+            float tx = x + 46, avail = rx - 14 - tx;
             String count = q.progress() + " / " + q.target();
-            int cnt = Draw.width(count);
-            Draw.textRight(g, count, cx + cw - rw - 16, yy + 10, SUB);
-            Draw.bold(g, Draw.fit((q.done() ? "\u2714 " : "") + q.text(), cw - rw - cnt - 36), cx + 10, yy + 9, q.done() ? 0xFF8CF0C0 : TEXT);
-            int bw = cw - 20, bx = cx + 10, byy = yy + ch - Math.min(12, ch / 3);
-            Draw.rrect(g, bx, byy, bw, 4, 2, 0xFF141C30);
-            float f = q.fraction() * outCubic((t - tabAt - 0.1f) / 0.6f);
-            if (f > 0) Draw.rrect(g, bx, byy, Math.max(3, Math.round(bw * f)), 4, 2, q.done() ? 0xFF5EE6A0 : GOLD);
-            y += ch + 6;
+            text(g, fit(q.text(), avail, F_BODY + 0.5f, Ty.SEMI), tx, cy - 6, F_BODY + 0.5f, Ty.SEMI, done ? 0xFFBFF5DA : TEXT);
+            float cwid = tw(count, F_SMALL, Ty.SEMI);
+            float bw = Math.max(20, avail - cwid - 10);
+            bar(g, tx, cy + 5, bw, 3, q.fraction() * outCubic((t - tabAt - 0.1f) / 0.6f), done ? GREEN : GOLD);
+            text(g, count, tx + bw + 10, cy + 6.5f, F_SMALL, Ty.SEMI, SUB);
+            y += ch + 8;
         }
         boolean all = com.zlorbie788.zeus.core.Quests.allDone();
         String bonus = all ? "All done! Bonus paid: +" + com.zlorbie788.zeus.core.Quests.BONUS + " tokens"
                 : "Finish all three for +" + com.zlorbie788.zeus.core.Quests.BONUS + " bonus tokens";
-        if (y + 10 < bottom) Draw.textCenter(g, Draw.fit(bonus, cw), cx + cw / 2, y + 2, all ? 0xFF8CF0C0 : SUB);
+        if (y + 10 < y0 + h0) textC(g, fit(bonus, cw, F_BODY, Ty.SEMI), x + cw / 2f, y + 6, F_BODY, Ty.SEMI, all ? GREEN : SUB);
         String st = Crates.streakClaimedToday() ? "Daily streak: day " + Crates.streak() + " claimed" : "Daily streak: play " + clock(Crates.streakPlayLeft()) + " more today";
-        if (y + 26 < bottom) Draw.textCenter(g, Draw.fit(st, cw), cx + cw / 2, y + 16, FAINT);
-    }
-
-    private void historyTab(GuiGraphics g, int mx, int my, float t, float dt) {
-        int top = py + 62, bottom = py + ph - 34;
-        List<Crates.Drop> hist = Crates.history();
-        // left: stats
-        int sw = Math.max(120, Math.min(190, pw * 28 / 100));
-        int sx = px + 12;
-        Draw.rrect(g, sx, top, sw, bottom - top, 8, 0xFF0B1124);
-        Draw.rrectLine(g, sx, top, sw, bottom - top, 8, 0xFF1C2A48);
-        Draw.bold(g, "YOUR LUCK", sx + 8, top + 7, GOLD);
-        Draw.text(g, Crates.opened() + " opened", sx + 8, top + 19, SUB);
-        int[] by = Crates.dropsByRarity();
-        int total = Math.max(1, hist.size());
-        Rarity[] rs = Rarity.values();
-        int ry = top + 34;
-        for (int i = rs.length - 1; i >= 0; i--) {
-            if (ry > bottom - 46) break;
-            Draw.rrect(g, sx + 8, ry + 1, 6, 6, 3, rs[i].tint());
-            Draw.text(g, rs[i].label, sx + 18, ry, 0xFFB0BEDC);
-            Draw.textRight(g, by[i] + "", sx + sw - 8, ry, by[i] > 0 ? TEXT : FAINT);
-            int bw = sw - 16;
-            float f = by[i] / (float) total;
-            Draw.rrect(g, sx + 8, ry + 10, bw, 2, 1, 0xFF141C30);
-            if (f > 0) Draw.rrect(g, sx + 8, ry + 10, Math.max(2, Math.round(bw * outCubic((t - tabAt) / 0.6f) * f)), 2, 1, rs[i].tint());
-            ry += 17;
-        }
-        // best drop: rarest, then most recent
-        Crates.Drop best = null;
-        for (Crates.Drop d : hist) if (best == null || Crates.rarityOf(d.knife()).ordinal() > Crates.rarityOf(best.knife()).ordinal()) best = d;
-        if (best != null && bottom - ry > 40) {
-            Draw.text(g, "BEST DROP", sx + 8, ry + 2, FAINT);
-            int kind = kindOf(best.knife());
-            int bh = Math.min(60, bottom - ry - 26);
-            if (kind >= 0) KnifeArt.still(g, kind, sx + 6, ry + 12, sw - 12, bh);
-            Draw.textCenter(g, Draw.fit(nameOf(best.knife()).replace(" \u00b7 ", " "), sw - 10), sx + sw / 2, ry + 14 + bh, Crates.rarityOf(best.knife()).tint());
-        }
-        // right: the list
-        int lx = sx + sw + 10, lw = px + pw - 12 - lx;
-        Draw.bold(g, "RECENT DROPS", lx, top, TEXT);
-        Draw.textRight(g, hist.isEmpty() ? "" : "last " + hist.size(), lx + lw, top, FAINT);
-        int gy = top + 13, gh = bottom - gy;
-        if (hist.isEmpty()) {
-            Draw.textCenter(g, "Nothing opened yet. Your drops will show up here.", lx + lw / 2, gy + gh / 2 - 4, FAINT);
-            return;
-        }
-        int rowH = 24, gap = 3;
-        int maxScroll = Math.max(0, hist.size() * (rowH + gap) - gh);
-        histScroll = Math.max(0, Math.min(maxScroll, histScroll));
-        histScrollShown = approach(histScrollShown, histScroll, 18f, dt);
-        g.enableScissor(lx - 2, gy, lx + lw + 2, gy + gh);
-        for (int i = 0; i < hist.size(); i++) {
-            int y = gy + i * (rowH + gap) - Math.round(histScrollShown);
-            if (y + rowH < gy || y > gy + gh) continue;
-            Crates.Drop d = hist.get(i);
-            Rarity r = Crates.rarityOf(d.knife());
-            float e = outCubic((t - tabAt - i * 0.025f) / 0.25f);
-            int ox = Math.round((1f - e) * 12f);
-            boolean hot = in(mx, my, lx, y, lw, rowH) && my >= gy && my < gy + gh;
-            float hv = hover(7000 + i, hot, dt);
-            Draw.rrect(g, lx + ox, y, lw, rowH, 5, Draw.mix(0xFF0C1222, Draw.mix(0xFF0C1222, r.tint(), 0.25f), hv));
-            g.fill(lx + ox, y + 3, lx + ox + 2, y + rowH - 3, r.tint());
-            int kind = kindOf(d.knife());
-            if (kind >= 0) KnifeArt.still(g, kind, lx + ox + 6, y + 2, 44, rowH - 4);
-            String n = nameOf(d.knife()).replace(" \u00b7 ", " ");
-            Draw.bold(g, Draw.fit(n, lw - 170), lx + ox + 56, y + 4, TEXT);
-            Crates.Crate cr = Crates.crate(d.crate());
-            Draw.text(g, Draw.fit(r.label + (cr == null ? "" : "  \u00b7  " + cr.name), lw - 170), lx + ox + 56, y + 14, r.tint());
-            Draw.textRight(g, ago(d.at()), lx + ox + lw - 8, y + 4, FAINT);
-            Draw.textRight(g, d.duplicate() ? "duplicate" : "new", lx + ox + lw - 8, y + 14, d.duplicate() ? FAINT : 0xFF6FE3A0);
-            if (e < 1f) Draw.rrect(g, lx + ox, y, lw, rowH, 5, Draw.rgba(PANEL, 1f - e));
-            if (hot) hit(H_HIST, i, lx, y, lw, rowH);
-        }
-        g.disableScissor();
+        if (y + 24 < y0 + h0) textC(g, fit(st, cw, F_SMALL, Ty.MED), x + cw / 2f, y + 21, F_SMALL, Ty.MED, FAINT);
     }
 
     // ------------------------------------------------------------------ inspect
@@ -1006,63 +1600,65 @@ public final class CratesScreen extends Screen {
         inspectAt = now();
         inspectYaw = -0.35f;
         inspectSpin = 0f;
-        placeCodeBox();
+        hideCodeBox();
         snd(SoundEvents.ARMOR_EQUIP_GENERIC, 1.3f, 0.5f);
     }
 
-    private int[] inspectBox() {
-        int bw = Math.round(Math.min(width * 0.62f, 380)), bh = Math.round(Math.min(height * 0.45f, 200));
-        return new int[] {width / 2 - bw / 2, height / 2 - bh / 2 - 26, bw, bh};
+    private float[] inspectBox() {
+        float bw = Math.min(W * 0.62f, 440), bh = Math.min(H * 0.46f, 240);
+        return new float[] {W / 2f - bw / 2f, H / 2f - bh / 2f - 40, bw, bh};
     }
 
-    private void renderInspect(GuiGraphics g, int mx, int my, float t, float dt) {
+    private void renderInspect(GuiGraphics g, float t, float dt) {
         hits.clear();
         float u = t - inspectAt;
         float e = outCubic(u / 0.3f);
-        g.fill(0, 0, width, height, Draw.rgba(0xD8030610, e));
+        fill(g, 0, 0, W, H, Draw.rgba(0xE0030610, e));
         Item it = inspect;
         Rarity r = it.rarity();
-        int[] b = inspectBox();
-        Draw.glow(g, width / 2 - 60, b[1] + b[3] / 2 - 30, 120, 60, 30, r.tint(), Math.round(Math.min(width, height) * 0.4f), 0.005f * e);
+        int rc = r.tint();
+        float[] b = inspectBox();
+        glow(g, W / 2f - 90, b[1] + b[3] / 2f - 40, 180, 80, 40, rc, Math.min(W, H) * 0.42f, 0.12f * e);
         // turn: drag with the mouse, or it drifts slowly on its own
         if (dragging) {
-            inspectSpin = (float) (mx - dragLastX) * 0.035f / Math.max(dt, 1e-3f) * 0.016f;
-            inspectYaw += (float) (mx - dragLastX) * 0.035f;
-            dragLastX = mx;
+            inspectSpin = (float) (mxu - dragLastX) * 0.035f / Math.max(dt, 1e-3f) * 0.016f;
+            inspectYaw += (float) (mxu - dragLastX) * 0.035f;
+            dragLastX = mxu;
         } else {
             inspectSpin = approach(inspectSpin, 0.35f * dt, 3f, dt);
             inspectYaw += inspectSpin;
         }
         float pop = 0.85f + 0.15f * outBack(u / 0.4f);
-        int bw = Math.round(b[2] * pop), bh = Math.round(b[3] * pop);
+        float bw = b[2] * pop, bh = b[3] * pop;
         float bob = 3f * (float) Math.sin(u * 1.8f);
-        KnifeHDGui.spin(g, Crates.hdOf(it.id()), width / 2 - bw / 2, Math.round(b[1] + b[3] / 2f - bh / 2f + bob), bw, bh, inspectYaw, 0.06f * (float) Math.sin(u * 0.7f));
+        knifeSpin(g, Crates.hdOf(it.id()), W / 2f - bw / 2f, b[1] + b[3] / 2f - bh / 2f + bob, bw, bh, inspectYaw, 0.06f * (float) Math.sin(u * 0.7f));
         boolean own = Crates.owns(it.id());
         String full = nameOf(it.id());
-        int ty = b[1] + b[3] + 8;
+        float ty = b[1] + b[3] + 14;
         float ta = outCubic((u - 0.1f) / 0.3f);
-        Draw.boldCenterS(g, typeName(full).toUpperCase(Locale.ROOT), width / 2, ty, Draw.rgba(SUB, ta), 0.9f);
-        Draw.boldCenterS(g, shortName(full).toUpperCase(Locale.ROOT), width / 2, ty + 11, Draw.rgba(TEXT, ta), 1.6f);
+        textC(g, typeName(full).toUpperCase(Locale.ROOT), W / 2f, ty, F_SMALL, Ty.BOLD, Draw.rgba(SUB, ta));
+        textC(g, shortName(full), W / 2f, ty + 17, 19, Ty.XBOLD, Draw.rgba(TEXT, ta));
         Crate from = Crates.crateOf(it.id());
-        String line = r.label + (from == null ? "  \u00b7  starter knife" : "  \u00b7  " + from.name);
-        Draw.textCenter(g, line, width / 2, ty + 30, Draw.rgba(r.tint(), ta));
-        Draw.textCenter(g, own ? "drag to turn it" : "locked  \u00b7  open the " + (from == null ? "crates" : from.name) + " to get it", width / 2, ty + 42, Draw.rgba(own ? FAINT : 0xFFFF8A7A, ta));
-        int w = 104, gap = 8;
-        int y = Math.min(height - 24, ty + 56);
+        String line = r.label + "  ·  " + r.odds() + "  ·  " + (from == null ? "starter knife" : from.name);
+        textC(g, line, W / 2f, ty + 36, F_SMALL, Ty.SEMI, Draw.rgba(rc, ta));
+        textC(g, own ? "Drag to turn it" : "Locked  ·  open the " + (from == null ? "crates" : from.name) + " to get it", W / 2f, ty + 50, F_SMALL,
+                Ty.MED, Draw.rgba(own ? FAINT : RED, ta));
+        float w = 112, gap = 8, bhh = 26;
+        float y = Math.min(H - bhh - 12, ty + 64);
         float bt = outCubic((u - 0.2f) / 0.3f);
-        int yy = y + Math.round((1f - bt) * 10f);
+        float yy = y + (1f - bt) * 10f;
         if (own) {
             boolean held = Crates.hdOf(it.id()) == KnifeSwing.heldHd();
-            button(g, H_EQUIP, width / 2 - w - gap / 2, yy, w, 20, held ? "IN HAND" : "EQUIP", r.tint(), !held, true, mx, my, t, dt);
-            button(g, H_DONE, width / 2 + gap / 2, yy, w, 20, "CLOSE", 0xFF5E73A0, true, false, mx, my, t, dt);
+            button(g, H_EQUIP, W / 2f - w - gap / 2f, yy, w, bhh, held ? "In hand" : "Equip", null, rc, !held, true, t, dt);
+            button(g, H_DONE, W / 2f + gap / 2f, yy, w, bhh, "Close", null, 0xFF5E73A0, true, false, t, dt);
         } else {
-            button(g, H_DONE, width / 2 - w / 2, yy, w, 20, "CLOSE", 0xFF5E73A0, true, false, mx, my, t, dt);
+            button(g, H_DONE, W / 2f - w / 2f, yy, w, bhh, "Close", null, 0xFF5E73A0, true, false, t, dt);
         }
     }
 
-    private void inspectClick(int mx, int my) {
+    private void inspectClick(float mx, float my) {
         for (int i = hits.size() - 1; i >= 0; i--) {
-            int[] h = hits.get(i);
+            float[] h = hits.get(i);
             if (!in(mx, my, h[2], h[3], h[4], h[5])) continue;
             if (h[0] == H_EQUIP) {
                 equip(inspect.id());
@@ -1070,16 +1666,14 @@ public final class CratesScreen extends Screen {
             } else if (h[0] == H_DONE) {
                 inspect = null;
             }
-            placeCodeBox();
             return;
         }
-        int[] b = inspectBox();
+        float[] b = inspectBox();
         if (in(mx, my, b[0] - 20, b[1] - 20, b[2] + 40, b[3] + 40)) {
             dragging = true;
             dragLastX = mx;
-        } else if (my < b[1] - 30 || my > height - 10) {
+        } else if (my < b[1] - 30 || my > H - 10) {
             inspect = null;
-            placeCodeBox();
         }
     }
 
@@ -1089,8 +1683,8 @@ public final class CratesScreen extends Screen {
         return super.mouseReleased(event);
     }
 
-    // ------------------------------------------------------------------ floaters (+1 token, +1 key)
-    private void floater(String text, int colour, int x, int y, float t) {
+    // ------------------------------------------------------------------ floaters (+1 token, +1 key) and the toast
+    private void floater(String text, int colour, float x, float y, float t) {
         floats.add(new Object[] {text, colour, x, y, t});
     }
 
@@ -1103,9 +1697,26 @@ public final class CratesScreen extends Screen {
                 continue;
             }
             float a = u < 0.15f ? u / 0.15f : 1f - clamp01((u - 0.7f) / 0.5f);
-            int y = (int) f[3] - Math.round(outCubic(u / 1.2f) * 14f);
-            Draw.boldCenter(g, (String) f[0], (int) f[2], y, Draw.rgba((int) f[1], a));
+            float y = (float) f[3] + outCubic(u / 1.2f) * 12f;
+            textC(g, (String) f[0], (float) f[2], y, F_BODY, Ty.BOLD, Draw.rgba((int) f[1], a));
         }
+    }
+
+    private void toast(GuiGraphics g) {
+        if (flash.isEmpty()) return;
+        long since = com.zlorbie788.zeus.core.Clock.millis() - flashAt;
+        float a = Math.min(1f, since / 150f) * (1f - clamp01((since - 2200) / 600f));
+        if (a <= 0f) {
+            if (since > 2200) flash = "";
+            return;
+        }
+        float w = tw(flash, F_BODY, Ty.SEMI) + 34, h = 26;
+        float x = W / 2f - w / 2f, y = py + ph - 40 - h - 12 + (1f - outCubic(since / 250f)) * 8f;
+        Draw.shadow(g, P(x), P(y), P(w), P(h), P(h / 2f), P(8), 0.6f * a);
+        rect(g, x, y, w, h, h / 2f, Draw.rgba(0xFF121A30, a));
+        stroke(g, x, y, w, h, h / 2f, Draw.rgba(GREEN, 0.6f * a));
+        dot(g, x + 14, y + h / 2f, 3, Draw.rgba(GREEN, a));
+        text(g, flash, x + 24, y + h / 2f, F_BODY, Ty.SEMI, Draw.rgba(TEXT, a));
     }
 
     // ------------------------------------------------------------------ input
@@ -1115,7 +1726,6 @@ public final class CratesScreen extends Screen {
         prevTab = tab;
         tab = i;
         tabAt = now();
-        placeCodeBox();
         if (tab == T_REDEEM) setFocused(codeBox);
     }
 
@@ -1128,7 +1738,7 @@ public final class CratesScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-        int mx = (int) event.x(), my = (int) event.y();
+        float mx = (float) event.x() * gs / s, my = (float) event.y() * gs / s;
         if (event.button() != 0) return super.mouseClicked(event, doubleClick);
         if (opening != null) {
             opening.click(mx, my);
@@ -1139,11 +1749,11 @@ public final class CratesScreen extends Screen {
             return true;
         }
         for (int i = hits.size() - 1; i >= 0; i--) {
-            int[] h = hits.get(i);
+            float[] h = hits.get(i);
             if (!in(mx, my, h[2], h[3], h[4], h[5])) continue;
-            switch (h[0]) {
-                case H_TAB -> setTab(h[1]);
-                case H_CRATE -> setSel(h[1]);
+            switch ((int) h[0]) {
+                case H_TAB -> setTab((int) h[1]);
+                case H_CRATE -> setSel((int) h[1]);
                 case H_OPEN -> startOpening(Crates.CRATES.get(sel));
                 case H_BUY -> {
                     int n = Crates.buyKeys(event.hasShiftDown() ? Crates.KEYS_PER_OPEN : 1);
@@ -1153,11 +1763,19 @@ public final class CratesScreen extends Screen {
                     }
                 }
                 case H_REDEEM -> redeem();
-                case H_COLL -> openInspect(allItems().get(h[1]));
-                case H_INSPECT -> openInspect(Crates.CRATES.get(sel).items.get(h[1]));
+                case H_COLL -> openInspect(allItems().get((int) h[1]));
+                case H_INSPECT -> openInspect(Crates.CRATES.get(sel).items.get((int) h[1]));
                 case H_HIST -> {
-                    var d = Crates.history().get(h[1]);
+                    var d = Crates.history().get((int) h[1]);
                     if (Crates.owns(d.knife())) openInspect(new Item(d.knife(), Crates.rarityOf(d.knife())));
+                }
+                case H_MULTI -> {
+                    Crates.setMulti((int) h[1]);
+                    snd(SoundEvents.UI_BUTTON_CLICK, 1.3f + 0.1f * (int) h[1], 0.45f);
+                }
+                case H_AUTO -> {
+                    Crates.setAuto(!Crates.auto());
+                    snd(SoundEvents.UI_BUTTON_CLICK, Crates.auto() ? 1.6f : 1.1f, 0.5f);
                 }
                 case H_QUICK -> {
                     Crates.setQuick(!Crates.quick());
@@ -1178,16 +1796,16 @@ public final class CratesScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double x, double y, double sx, double sy) {
-        if (inspect != null) return true;
-        if (tab == T_COLL && opening == null) {
-            collScroll -= (float) sy * 36f;
+        if (inspect != null || opening != null) return true;
+        if (tab == T_COLL) {
+            collScroll -= (float) sy * 40f;
             return true;
         }
-        if (tab == T_HIST && opening == null) {
-            histScroll -= (float) sy * 30f;
+        if (tab == T_HIST) {
+            histScroll -= (float) sy * 34f;
             return true;
         }
-        if (tab == T_CRATES && opening == null) {
+        if (tab == T_CRATES) {
             setSel(Math.floorMod(sel - (int) Math.signum(sy), Crates.CRATES.size()));
             return true;
         }
@@ -1202,12 +1820,12 @@ public final class CratesScreen extends Screen {
             else if (key == 32 || key == 257) opening.skip();
             return true;
         }
-        if (key == 256) {
-            onClose();
-            return true;
-        }
         if (inspect != null) {
             if (key == 256 || key == 257) inspect = null;
+            return true;
+        }
+        if (key == 256) {
+            onClose();
             return true;
         }
         if (tab == T_REDEEM && (key == 257 || key == 335)) {
@@ -1218,6 +1836,11 @@ public final class CratesScreen extends Screen {
             if (key == 264) setSel((sel + 1) % Crates.CRATES.size());
             else if (key == 265) setSel(Math.floorMod(sel - 1, Crates.CRATES.size()));
             else if (key == 257 || key == 32) startOpening(Crates.CRATES.get(sel));
+        }
+        // number keys pick a tab
+        if (key >= 49 && key < 49 + TABS.length && (codeBox == null || !codeBox.isFocused())) {
+            setTab(key - 49);
+            return true;
         }
         return super.keyPressed(event);
     }
@@ -1235,8 +1858,8 @@ public final class CratesScreen extends Screen {
         }
     }
 
-    private void say(String s) {
-        flash = s;
+    private void say(String msg) {
+        flash = msg;
         flashAt = com.zlorbie788.zeus.core.Clock.millis();
     }
 
@@ -1255,31 +1878,34 @@ public final class CratesScreen extends Screen {
             int col = r.item().rarity().tint() & 0xFFFFFF;
             net.minecraft.network.chat.MutableComponent m = Component.literal("[Zeus Crates] ").withColor(0xF5C04A)
                     .append(Component.literal("You unboxed ").withColor(0xE9F1FF))
-                    .append(Component.literal(nameOf(r.item().id()).replace(" \u00b7 ", " | ")).withColor(col))
+                    .append(Component.literal(nameOf(r.item().id()).replace(" · ", " | ")).withColor(col))
                     .append(Component.literal(" (" + r.item().rarity().label + ")").withColor(col));
             minecraft.gui.getChat().addMessage(m);
         } catch (RuntimeException ignored) {
         }
     }
 
+    /** Opens as many of the chosen crate as picked (one to three), as far as the keys go. */
     private void startOpening(Crate c) {
-        if (!Crates.canOpen(c)) return;
-        Crates.Result res = Crates.open(c);
-        if (res == null) return;
-        opening = new Opening(c, res, lastCrateCx, lastCrateCy, lastCrateSize);
-        placeCodeBox();
+        int n = Math.min(Crates.multi(), Crates.canOpenCount());
+        if (n <= 0) return;
+        List<Crates.Result> res = Crates.open(c, n);
+        if (res.isEmpty()) return;
+        // the reveal shows the winners big: start reading their large sheets now, seconds before they are needed
+        for (Crates.Result r : res) KnifeHDGui.prefetch(Crates.hdOf(r.item().id()), true);
+        opening = new Opening(c, res, Math.round(lastCrateCx), Math.round(lastCrateCy), Math.round(lastCrateSize));
+        hideCodeBox();
         snd(SoundEvents.CHEST_LOCKED, 1.3f, 0.7f);
     }
 
-    // ------------------------------------------------------------------ the opening sequence
     /** A bright rainbow colour: 0 red round to 1 red again. */
     private static int hue(float h) {
         h = h - (float) Math.floor(h);
         return 0xFF000000 | (java.awt.Color.HSBtoRGB(h, 0.58f, 1f) & 0xFFFFFF);
     }
 
+    // ------------------------------------------------------------------ the opening sequence
     private final class Opening {
-        // timeline (seconds)
         // timeline (seconds); Quick open shortens every step
         final boolean fast = Crates.quick();
         final float FLY = fast ? 0.22f : 0.45f;       // crate flies from the panel to the middle
@@ -1290,47 +1916,81 @@ public final class CratesScreen extends Screen {
         final float SETTLE = fast ? 0.25f : 0.40f;    // overshoot ticks back onto the winner
         final float HOLD = fast ? 0.30f : 0.55f;      // winner lifts, light beam
         final float MORPH = 0.50f;                     // knife flies out of the card into the reveal
+        static final float FADE = 0.25f;               // the dark backdrop fades in over this long
+
+        final float STAGGER = fast ? 0.20f : 0.38f;  // with several crates, each reel stops a little after the one above
+        /** How long a reveal stays before auto open starts the next one. */
+        final float AUTO_WAIT = fast ? 1.6f : 2.6f;
 
         final Crate crate;
+        /** Every crate opened at once, and the rarest of them, which sets the mood of the reveal. */
+        final List<Crates.Result> results;
         final Crates.Result res;
-        final List<Item> reel = new ArrayList<>();
+        final int n;
+        final List<List<Item>> reels = new ArrayList<>();
+        final List<Item> reel;
         final int win;
+        final float[] lands, overs;
         final float land;
         final float over;
-        final int fromX, fromY, fromSize;
+        final int[] lastCards;
+        final boolean[] equipped;
+        final boolean[] landRung;
+        boolean autoStopped;
+        final float fromX, fromY, fromSize;
         final long start = com.zlorbie788.zeus.core.Clock.nanoTime();
         float skipBy;
         int lastCard = Integer.MIN_VALUE;
         long lastTick;
-        boolean burstSound, landSound, revealSound, beamSound, latchSound;
+        boolean burstSound, revealSound, latchSound;
         /** The secret tier gets its own reveal: rainbow light, a chord, more of everything. */
         final boolean chroma;
         int chimes;
         final float[][] sparks = new float[90][6];
         final float[][] confetti;
 
-        Opening(Crate c, Crates.Result r, int fromX, int fromY, int fromSize) {
+        Opening(Crate c, List<Crates.Result> rs, int fromX, int fromY, int fromSize) {
             crate = c;
-            res = r;
+            results = new ArrayList<>(rs);
+            n = results.size();
+            Crates.Result best = results.get(0);
+            for (Crates.Result r0 : results) if (r0.item().rarity().ordinal() > best.item().rarity().ordinal()) best = r0;
+            res = best;
+            Crates.Result r = best;
             this.fromX = fromX;
             this.fromY = fromY;
             this.fromSize = Math.max(40, fromSize);
-            chroma = r.item().rarity() == Rarity.CHROMA;
+            boolean anyChroma = false;
+            for (Crates.Result r0 : results) anyChroma |= r0.item().rarity() == Rarity.CHROMA;
+            chroma = anyChroma;
             Random rnd = new Random();
-            for (int i = 0; i < 64; i++) reel.add(Crates.roll(c));
             win = 56;
-            reel.set(win, r.item());
-            land = (rnd.nextFloat() - 0.5f) * 0.70f;
-            over = 0.14f + rnd.nextFloat() * 0.16f;
-            for (float[] s : sparks) {
+            lands = new float[n];
+            overs = new float[n];
+            lastCards = new int[n];
+            equipped = new boolean[n];
+            landRung = new boolean[n];
+            for (int k = 0; k < n; k++) {
+                List<Item> rl = new ArrayList<>();
+                for (int i = 0; i < 64; i++) rl.add(Crates.roll(c));
+                rl.set(win, results.get(k).item());
+                reels.add(rl);
+                lands[k] = (rnd.nextFloat() - 0.5f) * 0.70f;
+                overs[k] = 0.14f + rnd.nextFloat() * 0.16f;
+                lastCards[k] = Integer.MIN_VALUE;
+            }
+            reel = reels.get(0);
+            land = lands[0];
+            over = overs[0];
+            for (float[] sp : sparks) {
                 double a = rnd.nextDouble() * Math.PI * 2;
                 float v = 70 + rnd.nextFloat() * 260;
-                s[0] = (float) Math.cos(a) * v;
-                s[1] = (float) Math.sin(a) * v - 50;
-                s[2] = 1 + rnd.nextFloat() * 2.2f;
-                s[3] = 0.6f + rnd.nextFloat() * 1.0f;
-                s[4] = rnd.nextFloat();
-                s[5] = rnd.nextFloat() * 6.28f;
+                sp[0] = (float) Math.cos(a) * v;
+                sp[1] = (float) Math.sin(a) * v - 50;
+                sp[2] = 1 + rnd.nextFloat() * 2.2f;
+                sp[3] = 0.6f + rnd.nextFloat() * 1.0f;
+                sp[4] = rnd.nextFloat();
+                sp[5] = rnd.nextFloat() * 6.28f;
             }
             boolean gold = r.item().rarity().ordinal() >= Rarity.OLYMPIAN.ordinal();
             confetti = new float[chroma ? 130 : gold ? 70 : 0][6];
@@ -1348,12 +2008,22 @@ public final class CratesScreen extends Screen {
             return (com.zlorbie788.zeus.core.Clock.nanoTime() - start) / 1e9f + skipBy;
         }
 
+        /** True once the dark backdrop has fully faded in and hides everything behind it. */
+        boolean covers() {
+            return t() >= FADE;
+        }
+
+        /** When reel k stops (each one after the one above). */
+        float landedAt(int k) {
+            return SPIN0 + SPIN + k * STAGGER;
+        }
+
         float landedAt() {
-            return SPIN0 + SPIN;
+            return landedAt(n - 1);
         }
 
         float revealAt() {
-            return SPIN0 + SPIN + SETTLE + HOLD;
+            return landedAt(n - 1) + SETTLE + HOLD;
         }
 
         void skip() {
@@ -1369,38 +2039,60 @@ public final class CratesScreen extends Screen {
         void close() {
             opening = null;
             openedAt = now();
-            placeCodeBox();
         }
 
         /** Reel position in cards: races, slows like a real wheel, runs a little past and ticks back. */
-        float pos(float t) {
-            float s = t - SPIN0;
-            if (s <= 0) return 0;
-            float target = win + land;
-            if (s < SPIN) {
-                float k = s / SPIN;
-                return (target + over) * (1f - (float) Math.pow(1f - k, 4.4f));
+        float pos(float t, int r) {
+            float sp = t - SPIN0;
+            if (sp <= 0) return 0;
+            float dur = SPIN + r * STAGGER;
+            float target = win + lands[r];
+            if (sp < dur) {
+                float k = sp / dur;
+                return (target + overs[r]) * (1f - (float) Math.pow(1f - k, 4.4f));
             }
-            float b = inOutCubic((s - SPIN) / SETTLE);
-            return target + over * (1f - b);
+            float b = inOutCubic((sp - dur) / SETTLE);
+            return target + overs[r] * (1f - b);
+        }
+
+        float pos(float t) {
+            return pos(t, 0);
+        }
+
+        float vel(float t, int r) {
+            return (pos(t + 0.02f, r) - pos(t - 0.02f, r)) / 0.04f;
         }
 
         float vel(float t) {
-            return (pos(t + 0.02f) - pos(t - 0.02f)) / 0.04f;
+            return vel(t, 0);
         }
 
-        void click(int mx, int my) {
+        boolean autoOn() {
+            return Crates.auto() && !autoStopped;
+        }
+
+        void click(float mx, float my) {
             float t = t();
             if (t < revealAt()) {
                 skip();
                 return;
             }
             for (int i = hits.size() - 1; i >= 0; i--) {
-                int[] h = hits.get(i);
+                float[] h = hits.get(i);
                 if (!in(mx, my, h[2], h[3], h[4], h[5])) continue;
-                if (h[0] == H_EQUIP) {
+                if (h[0] == H_EQUIP && n > 1) {
+                    // several knives: equip the one picked and stay, to look at the others
+                    int k = (int) h[1];
+                    equip(results.get(k).item().id());
+                    java.util.Arrays.fill(equipped, false);
+                    equipped[k] = true;
+                } else if (h[0] == H_EQUIP) {
                     equip(res.item().id());
                     close();
+                } else if (h[0] == H_STOP) {
+                    autoStopped = true;
+                    Crates.setAuto(false);
+                    snd(SoundEvents.UI_BUTTON_CLICK, 1.0f, 0.5f);
                 } else if (h[0] == H_AGAIN) {
                     close();
                     startOpening(crate);
@@ -1411,31 +2103,60 @@ public final class CratesScreen extends Screen {
             }
         }
 
-        // reel geometry shared by the reel and the morph into the reveal
-        int cw() {
-            return Math.max(64, Math.min(100, width / 7));
+        // reel geometry shared by the reel and the morph into the reveal, in units
+        float cw() {
+            return Math.max(92, Math.min(128, W / 7.5f));
         }
 
-        int ch() {
+        float ch() {
             return Math.round(cw() * 1.22f);
         }
 
-        void render(GuiGraphics g, int mx, int my, float clock, float dt) {
+        void render(GuiGraphics g, float clock, float dt) {
             float t = t();
             hits.clear();
-            float dim = clamp01(t / 0.25f);
-            g.fill(0, 0, width, height, Draw.rgba(0xF2020408, dim));
+            float dim = clamp01(t / FADE);
+            // fully opaque once faded in, so nothing behind needs drawing
+            fill(g, 0, 0, W, H, dim >= 1f ? 0xFF020408 : Draw.rgba(0xF2020408, dim));
             if (t < SPIN0 + 0.35f) intro(g, t, clock);
             if (t >= SPIN0 - 0.15f && t < revealAt() + 0.4f) reelView(g, t, clock);
-            if (t >= revealAt()) reveal(g, mx, my, t - revealAt(), clock, dt);
-            else Draw.textCenter(g, "click or press space to skip", width / 2, height - 18, 0x605E73A0);
+            if (t >= revealAt()) {
+                float u = t - revealAt();
+                if (n == 1) reveal(g, u, clock, dt);
+                else revealMany(g, u, clock, dt);
+                autoNext(g, u);
+            } else {
+                textC(g, "Click or press space to skip", W / 2f, H - 16, F_SMALL, Ty.MED, 0xA05E73A0);
+            }
+        }
+
+        /** Auto open: after the reveal has stood a moment, open again with the same count, while keys last. */
+        void autoNext(GuiGraphics g, float u) {
+            if (!Crates.auto() || autoStopped) return;
+            int can = Crates.canOpenCount();
+            if (can <= 0) {
+                autoStopped = true;
+                say("Auto open stopped: out of keys");
+                return;
+            }
+            float f = clamp01((u - 0.9f) / (AUTO_WAIT - 0.9f));
+            if (f > 0f) {
+                float bw = 160, by = H - 22;
+                rect(g, W / 2f - bw / 2f, by, bw, 3, 1.5f, 0xFF161F38);
+                rect(g, W / 2f - bw / 2f, by, bw * f, 3, 1.5f, GOLD);
+                textC(g, "Next crate in a moment  ·  click Stop to stay here", W / 2f, by - 8, F_TINY + 0.3f, Ty.MED, SUB);
+            }
+            if (u >= AUTO_WAIT) {
+                close();
+                startOpening(crate);
+            }
         }
 
         void intro(GuiGraphics g, float t, float clock) {
-            int cx = width / 2, cy = height / 2;
+            float cx = W / 2f, cy = H / 2f;
             float fly = inOutCubic(t / FLY);
             float x = fromX + (cx - fromX) * fly, y = fromY + (cy - fromY) * fly;
-            int size = Math.round(fromSize + (Math.min(150, height / 2.2f) - fromSize) * fly);
+            float size = fromSize + (Math.min(170, H / 2.2f) - fromSize) * fly;
             float rattle = clamp01((t - FLY) / RATTLE);
             float shake = rattle * rattle * 6f;
             float lid = clamp01((t - FLY - RATTLE) / BURST);
@@ -1460,132 +2181,264 @@ public final class CratesScreen extends Screen {
                 snd(SoundEvents.FIREWORK_ROCKET_BLAST, 1.3f, 0.5f);
             }
             if (fade <= 0f) return;
-            Draw.glow(g, Math.round(x) - size / 3, Math.round(y) - size / 4, size * 2 / 3, size / 2, 30, crate.colour, Math.max(20, size / 2), (0.02f + 0.05f * rattle + 0.1f * lid) * fade);
-            drawCrate(g, crate, x, y, size, clock, lid, lid > 0 ? 0f : shake, rattle * 0.5f + lid);
+            glow(g, x - size / 3f, y - size / 4f, size * 2 / 3f, size / 2f, 30, crate.colour, Math.max(20, size / 2f),
+                    Math.min(1f, (0.02f + 0.05f * rattle + 0.1f * lid) * fade * Math.max(20, size / 2f) / 3f));
+            crate(g, crate, x, y, size, clock, lid, lid > 0 ? 0f : shake, rattle * 0.5f + lid);
             if (lid > 0f) {
                 // shockwave ring and a flash of the crate's colour
                 float since = t - FLY - RATTLE;
                 float rr = 10 + since * size * 3.2f;
                 float ra = 1f - clamp01(since / 0.6f);
-                ring(g, x, y, rr, Draw.rgba(Draw.lighten(crate.colour, 0.4f), 0.7f * ra), 2);
-                g.fill(0, 0, width, height, Draw.rgba(Draw.lighten(crate.colour, 0.6f), 0.30f * (1f - lid) * lid * 4f * fade));
+                ring(g, x, y, rr, Draw.rgba(Draw.lighten(crate.colour, 0.4f), 0.7f * ra));
+                fill(g, 0, 0, W, H, Draw.rgba(Draw.lighten(crate.colour, 0.6f), 0.30f * (1f - lid) * lid * 4f * fade));
             }
         }
 
-        void ring(GuiGraphics g, float cx, float cy, float r, int colour, int thick) {
-            int ri = Math.max(2, Math.round(r));
-            for (int k = 0; k < thick; k++) Draw.rrectLine(g, Math.round(cx) - ri - k, Math.round(cy) - ri - k, (ri + k) * 2, (ri + k) * 2, ri + k, colour);
+        /**
+         * A shockwave ring, as a circle of short strokes. (It used to be a rounded outline, and every new radius of a
+         * growing ring baked a new corner texture thousands of pixels wide: that froze the frame the crate burst open
+         * and the frame the knife was revealed.)
+         */
+        void ring(GuiGraphics g, float cx, float cy, float r, int colour) {
+            r = Math.max(2, r);
+            int seg = Math.max(24, Math.min(120, Math.round(r * s / 7f)));
+            float step = (float) (Math.PI * 2 / seg);
+            for (int i = 0; i < seg; i++) {
+                float a0 = i * step, a1 = (i + 1) * step + 0.004f;
+                line(g, cx + (float) Math.cos(a0) * r, cy + (float) Math.sin(a0) * r, cx + (float) Math.cos(a1) * r, cy + (float) Math.sin(a1) * r,
+                        1.6f, colour);
+            }
         }
 
         void reelView(GuiGraphics g, float t, float clock) {
-            int cw = cw(), ch = ch(), gap = 6;
-            int step = cw + gap;
-            float cy = height / 2f - ch / 2f;
+            // one reel per crate, stacked; with more reels each is a little smaller
+            float k = n == 1 ? 1f : n == 2 ? 0.80f : 0.64f;
+            float cw = cw() * k, ch = Math.round(ch() * k), gap = 8 * k;
+            float step = cw + gap;
+            float pad = n == 1 ? 18 : 10, rowGap = 14;
+            float railH = ch + 2 * pad;
+            float total = n * railH + (n - 1) * rowGap;
+            float top = H / 2f - total / 2f;
             float slide = outCubic((t - (SPIN0 - 0.15f)) / 0.4f);
-            float pos = pos(t);
             float out = clamp01((t - revealAt()) / 0.3f);
             float a = slide * (1f - out);
             if (a <= 0.01f) return;
-            int under = (int) Math.floor(pos + 0.5f);
-            if (under != lastCard) {
-                long n = com.zlorbie788.zeus.core.Clock.nanoTime();
-                if (lastCard != Integer.MIN_VALUE && n - lastTick > 26_000_000L && t < landedAt() + SETTLE + 0.05f) {
-                    float speed = Math.abs(vel(t));
-                    snd(SoundEvents.UI_BUTTON_CLICK, 1.45f + Math.min(0.55f, speed / 55f), 0.20f + Math.min(0.15f, speed / 200f));
-                    lastTick = n;
-                }
-                lastCard = under;
-            }
-            int railY = Math.round(cy) - 16, railH = ch + 32;
-            g.fill(0, railY, width, railY + railH, Draw.rgba(0xF00A0E1A, a));
-            g.fill(0, railY, width, railY + 1, Draw.rgba(crate.colour, 0.6f * a));
-            g.fill(0, railY + railH - 1, width, railY + railH, Draw.rgba(crate.colour, 0.6f * a));
-            boolean landed = t >= landedAt() + SETTLE;
-            float hold = clamp01((t - (landedAt() + SETTLE)) / HOLD);
-            float speed = Math.abs(vel(t));
-            float slideX = (1f - slide) * width * 0.5f;
-            g.enableScissor(0, railY, width, railY + railH);
-            int first = (int) Math.floor(pos - (width / 2f) / step) - 1;
-            for (int i = Math.max(0, first); i < Math.min(reel.size(), first + width / step + 4); i++) {
-                if (landed && i == win) continue;          // drawn on top, outside the clip
-                float fx = width / 2f + (i - pos) * step - cw / 2f + slideX;
-                // cards near the marker grow a little and brighten
-                float near = Math.max(0f, 1f - Math.abs(i - pos));
-                float s = 1f + 0.06f * near * (speed < 18 ? 1f : 0.4f);
-                float dimK = landed ? 1f - 0.7f * outCubic(hold * 2f) : 1f;
-                g.pose().pushMatrix();
-                g.pose().translate(fx + cw / 2f, cy + ch / 2f + (landed ? outCubic(hold * 1.5f) * 8f : 0f));
-                g.pose().scale(s, s);
-                g.pose().translate(-cw / 2f, -ch / 2f);
-                card(g, reel.get(i), 0, 0, cw, ch, false, false, 0f, 0f);
-                float shade = 1f - Math.min(1f, a * dimK);
-                if (shade > 0.01f) Draw.rrect(g, 0, 0, cw, ch, 5, Draw.rgba(0xFF04060C, shade));
-                g.pose().popMatrix();
-            }
-            // speed streaks and soft dark edges
-            if (speed > 8) {
-                float k = Math.min(1f, (speed - 8) / 30f);
-                Random r = new Random((long) (pos * 3));
-                for (int s = 0; s < 16; s++) {
-                    int yy = Math.round(cy) + r.nextInt(ch);
-                    int len = 40 + r.nextInt(140);
-                    int xx = r.nextInt(width);
-                    g.fill(xx, yy, xx + len, yy + 1, Draw.rgba(0xFFFFFFFF, 0.10f * k * a));
+            float slideX = (1f - slide) * W * 0.5f;
+            // a click as each card passes the marker (one reel's worth, so three reels do not triple it)
+            for (int r = 0; r < n; r++) {
+                int under = (int) Math.floor(pos(t, r) + 0.5f);
+                if (under != lastCards[r]) {
+                    long now = com.zlorbie788.zeus.core.Clock.nanoTime();
+                    if (lastCards[r] != Integer.MIN_VALUE && now - lastTick > 26_000_000L && t < landedAt(r) + SETTLE + 0.05f) {
+                        float speed = Math.abs(vel(t, r));
+                        snd(SoundEvents.UI_BUTTON_CLICK, 1.45f + Math.min(0.55f, speed / 55f), 0.20f + Math.min(0.15f, speed / 200f));
+                        lastTick = now;
+                    }
+                    lastCards[r] = under;
                 }
             }
-            for (int e = 0; e < 10; e++) {
-                float k = (1f - e / 10f);
-                int col = Draw.rgba(0xFF04060C, 0.10f * k * a);
-                int w = Math.max(1, width / 40);
-                g.fill(e * w, railY, (e + 1) * w, railY + railH, col);
-                g.fill(width - (e + 1) * w, railY, width - e * w, railY + railH, col);
-            }
-            g.disableScissor();
-            // the marker
-            int mxl = width / 2;
-            Draw.glow(g, mxl - 1, railY - 6, 2, railH + 12, 1, GOLD, 8, 0.25f * a);
-            g.fill(mxl - 1, railY - 6, mxl + 1, railY + railH + 6, Draw.rgba(GOLD, a * (1f - 0.8f * hold)));
-            for (int k = 0; k < 6; k++) {
-                g.fill(mxl - 6 + k, railY - 8 + k, mxl + 6 - k, railY - 7 + k, Draw.rgba(GOLD, a));
-                g.fill(mxl - 6 + k, railY + railH + 7 - k, mxl + 6 - k, railY + railH + 8 - k, Draw.rgba(GOLD, a));
-            }
-            Draw.boldCenterS(g, crate.name.toUpperCase(Locale.ROOT), width / 2, railY - 30, Draw.rgba(crate.colour, a), 1.3f);
-            // the winner: lifts out of the reel with a beam of its rarity's light
-            if (landed) {
-                if (!landSound) {
-                    landSound = true;
-                    snd(SoundEvents.NOTE_BLOCK_CHIME, 1.6f, 0.7f);
+            textC(g, n == 1 ? crate.name : n + " × " + crate.name, W / 2f, top - 14, F_TITLE + 1, Ty.XBOLD, Draw.rgba(Draw.lighten(crate.colour, 0.15f), a));
+            for (int r = 0; r < n; r++) {
+                List<Item> rl = reels.get(r);
+                float railY = top + r * (railH + rowGap), cy = railY + pad;
+                float pos = pos(t, r), speed = Math.abs(vel(t, r));
+                boolean landed = t >= landedAt(r) + SETTLE;
+                float hold = clamp01((t - (landedAt(r) + SETTLE)) / HOLD);
+                rect(g, 0, railY, W, railH, 0, Draw.rgba(0xF00C1222, a), Draw.rgba(0xF0070A14, a));
+                fill(g, 0, railY, W, 1f / s, Draw.rgba(crate.colour, 0.6f * a));
+                fill(g, 0, railY + railH - 1f / s, W, 1f / s, Draw.rgba(crate.colour, 0.6f * a));
+                scissor(g, 0, railY, W, railH);
+                int first = (int) Math.floor(pos - (W / 2f) / step) - 1;
+                cardsBegin();
+                for (int i = Math.max(0, first); i < Math.min(rl.size(), first + (int) (W / step) + 4); i++) {
+                    if (landed && i == win) continue;          // drawn on top, outside the clip
+                    float fx = W / 2f + (i - pos) * step + slideX;
+                    // cards near the marker grow a little and brighten
+                    float near = Math.max(0f, 1f - Math.abs(i - pos));
+                    float sc = 1f + 0.06f * near * (speed < 18 ? 1f : 0.4f);
+                    float dimK = landed ? 1f - 0.7f * outCubic(hold * 2f) : 1f;
+                    float ccy = cy + ch / 2f + (landed ? outCubic(hold * 1.5f) * 8f * k : 0f);
+                    Card cd = cardAdd().set(rl.get(i), fx - cw * sc / 2f, ccy - ch * sc / 2f, cw * sc, ch * sc, false, false, 0f, false);
+                    cd.sc = sc;
+                    cd.veil = 1f - Math.min(1f, a * dimK);
+                    cd.veilColour = 0xFF04060C;
                 }
-                Rarity rar = res.item().rarity();
-                if (!beamSound && rar.ordinal() >= Rarity.DIVINE.ordinal()) {
-                    beamSound = true;
-                    snd(SoundEvents.BEACON_ACTIVATE, 1.6f, 0.5f);
+                cardsDraw(g, 0f);
+                // speed streaks and soft dark edges
+                if (speed > 8) {
+                    float kk = Math.min(1f, (speed - 8) / 30f);
+                    Random rr = new Random((long) (pos * 3) + r * 7919L);
+                    for (int sI = 0; sI < 16 / n + 4; sI++) {
+                        float yy = cy + rr.nextInt(Math.max(1, (int) ch));
+                        float len = 40 + rr.nextInt(140);
+                        float xx = rr.nextInt(Math.max(1, (int) W));
+                        fill(g, xx, yy, len, 1f / s, Draw.rgba(0xFFFFFFFF, 0.10f * kk * a));
+                    }
                 }
-                float fx = width / 2f + (win - pos) * step - cw / 2f;
+                float ew = Math.max(1, W / 40f);
+                for (int e = 0; e < 10; e++) {
+                    float ek = (1f - e / 10f);
+                    int col = Draw.rgba(0xFF04060C, 0.10f * ek * a);
+                    fill(g, e * ew, railY, ew, railH, col);
+                    fill(g, W - (e + 1) * ew, railY, ew, railH, col);
+                }
+                g.disableScissor();
+            }
+            // the marker: one gold line through every reel, with a pointer at each end
+            float mxl = W / 2f, mTop = top - 6, mBot = top + total + 6;
+            boolean allLanded = t >= landedAt() + SETTLE;
+            float holdAll = clamp01((t - (landedAt() + SETTLE)) / HOLD);
+            glow(g, mxl - 0.5f, mTop, 1f, mBot - mTop, 0, GOLD, 8, 0.6f * a);
+            fill(g, mxl - 0.6f, mTop, 1.2f, mBot - mTop, Draw.rgba(GOLD, a * (1f - 0.8f * (allLanded ? holdAll : 0f))));
+            for (int kk = 0; kk < 6; kk++) {
+                fill(g, mxl - 6 + kk, mTop - 3 + kk, 12 - 2 * kk, 1, Draw.rgba(GOLD, a));
+                fill(g, mxl - 6 + kk, mBot + 2 - kk, 12 - 2 * kk, 1, Draw.rgba(GOLD, a));
+            }
+            // each winner lifts out of its reel with a beam of its rarity's light
+            for (int r = 0; r < n; r++) {
+                if (t < landedAt(r) + SETTLE) continue;
+                float hold = clamp01((t - (landedAt(r) + SETTLE)) / HOLD);
+                Rarity rar = results.get(r).item().rarity();
+                if (!landRung[r]) {
+                    landRung[r] = true;
+                    snd(SoundEvents.NOTE_BLOCK_CHIME, 1.6f + 0.12f * r, 0.7f);
+                    if (rar.ordinal() >= Rarity.DIVINE.ordinal()) snd(SoundEvents.BEACON_ACTIVATE, 1.6f, 0.5f);
+                }
+                float railY = top + r * (railH + rowGap), cy = railY + pad;
+                float fx = W / 2f + (win - pos(t, r)) * step - cw / 2f;
                 float lift = outBack(hold * 1.3f);
-                float s = 1f + 0.22f * lift;
+                float sc = 1f + 0.22f * lift * (n == 1 ? 1f : 0.6f);
                 int col = rar.tint();
                 float bw = cw * (0.3f + 0.9f * outCubic(hold));
-                Draw.glow(g, Math.round(fx + cw / 2f - bw / 2f), 0, Math.round(bw), height, 4, col, 26, 0.035f * outCubic(hold * 2f) * a);
-                g.fill(Math.round(fx + cw / 2f - 1), 0, Math.round(fx + cw / 2f + 1), height, Draw.rgba(Draw.lighten(col, 0.5f), 0.5f * outCubic(hold * 2f) * a));
+                if (n == 1) {
+                    glow(g, fx + cw / 2f - bw / 2f, 0, bw, H, 4, col, 26, 0.30f * outCubic(hold * 2f) * a);
+                    fill(g, fx + cw / 2f - 0.6f, 0, 1.2f, H, Draw.rgba(Draw.lighten(col, 0.5f), 0.5f * outCubic(hold * 2f) * a));
+                } else {
+                    glow(g, fx + cw / 2f - bw / 2f, railY, bw, railH, 4, col, 18, 0.30f * outCubic(hold * 2f) * a);
+                }
                 g.pose().pushMatrix();
-                g.pose().translate(fx + cw / 2f, cy + ch / 2f - lift * 10f);
-                g.pose().scale(s, s);
-                g.pose().translate(-cw / 2f, -ch / 2f);
+                g.pose().translate((fx + cw / 2f) * s, (cy + ch / 2f - lift * 10f * k) * s);
+                g.pose().scale(sc, sc);
+                g.pose().translate(-cw / 2f * s, -ch / 2f * s);
                 float pulse = 0.5f + 0.5f * (float) Math.sin(clock * 10f);
-                Draw.glow(g, 0, 0, cw, ch, 6, col, 16, (0.12f + 0.10f * pulse) * a);
-                card(g, reel.get(win), 0, 0, cw, ch, false, false, 0f, 0f);
+                glow(g, 0, 0, cw, ch, 7, col, 16, (0.6f + 0.5f * pulse) * a);
+                card(g, reels.get(r).get(win), 0, 0, cw, ch, false, false, 0f, 0f, false);
                 g.pose().popMatrix();
             }
         }
 
-        void reveal(GuiGraphics g, int mx, int my, float u, float clock, float dt) {
+        /** Several knives at once: a column for each, side by side, each with its own Equip. */
+        void revealMany(GuiGraphics g, float u, float clock, float dt) {
             Rarity rar = res.item().rarity();
             int col = rar.tint();
             boolean big = rar.ordinal() >= Rarity.TITAN.ordinal();
             if (!revealSound) {
-                announce(res);
+                revealSound = true;
+                for (Crates.Result r : results) announce(r);
+                if (chroma) {
+                    snd(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1.15f, 0.9f);
+                    snd(SoundEvents.AMETHYST_CLUSTER_BREAK, 1.4f, 0.9f);
+                } else if (big) {
+                    snd(SoundEvents.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 0.8f);
+                } else if (rar.ordinal() >= Rarity.DIVINE.ordinal()) {
+                    snd(SoundEvents.PLAYER_LEVELUP, 1.1f, 0.8f);
+                    snd(SoundEvents.AMETHYST_BLOCK_CHIME, 1.2f, 1f);
+                } else {
+                    snd(SoundEvents.PLAYER_LEVELUP, 1.4f, 0.6f);
+                }
             }
+            float e = outCubic(u / 0.45f);
+            float cx = W / 2f, cy = H / 2f - 20;
+            if (u < 0.25f) fill(g, 0, 0, W, H, Draw.rgba(0xFFFFFFFF, (chroma ? 0.6f : 0.4f) * (1f - u / 0.25f)));
+            // the rarest drop sets the light: its colour, turning rays, a ring
+            float rad = Math.min(W, H) * 0.5f;
+            glow(g, cx - 120, cy - 40, 240, 80, 40, col, rad, 0.22f * e);
+            float len = Math.max(W, H) * 0.75f;
+            int rays = 24;
+            for (int layer = 0; layer < (chroma ? 2 : 1); layer++) {
+                float rot = (layer == 0 ? 1 : -0.6f) * clock * 0.22f;
+                for (int i = 0; i < rays; i++) {
+                    double ang = rot + (i + layer * 0.33) * Math.PI * 2 / rays;
+                    float alpha = (i % 2 == 0 ? 0.10f : 0.05f) * e;
+                    int rc = chroma ? hue(i / (float) rays + clock * 0.08f) : col;
+                    for (int kk = -1; kk <= 1; kk++) {
+                        double aa = ang + kk * 0.02;
+                        line(g, cx, cy, cx + (float) Math.cos(aa) * len, cy + (float) Math.sin(aa) * len, 1.6f, Draw.rgba(rc, alpha * (1f - Math.abs(kk) * 0.3f)));
+                    }
+                }
+            }
+            if (u < 0.8f) ring(g, cx, cy, 20 + u * Math.max(W, H) * 0.6f, Draw.rgba(Draw.lighten(col, 0.4f), 0.6f * (1f - u / 0.8f)));
+            // a column per knife
+            float colW = Math.min(W * 0.28f, 250), gap = 16;
+            float colH = Math.min(H * 0.62f, 300);
+            float total = n * colW + (n - 1) * gap;
+            float x0 = cx - total / 2f, top = cy - colH / 2f;
+            for (int i = 0; i < n; i++) {
+                Crates.Result r = results.get(i);
+                Rarity ri = r.item().rarity();
+                int rc = ri.tint();
+                float ui = u - i * 0.12f;
+                float pe = outBack(ui / 0.45f);
+                if (pe <= 0f) continue;
+                float x = x0 + i * (colW + gap), y = top + (1f - outCubic(ui / 0.4f)) * 18f;
+                g.pose().pushMatrix();
+                g.pose().translate((x + colW / 2f) * s, (y + colH / 2f) * s);
+                g.pose().scale(0.9f + 0.1f * pe, 0.9f + 0.1f * pe);
+                g.pose().translate(-(x + colW / 2f) * s, -(y + colH / 2f) * s);
+                float ca = clamp01(ui / 0.25f);
+                if (ri.ordinal() >= Rarity.TITAN.ordinal()) glow(g, x, y, colW, colH, 14, rc, 14, (0.25f + 0.1f * (float) Math.sin(clock * 3 + i)) * ca);
+                rect(g, x, y, colW, colH, 14, Draw.rgba(Draw.mix(0xFF0E1426, rc, 0.10f), ca), Draw.rgba(Draw.mix(0xFF080B16, rc, 0.20f), ca));
+                stroke(g, x, y, colW, colH, 14, Draw.rgba(Draw.mix(BORDER_HI, rc, 0.6f), ca));
+                if (ri == Rarity.CHROMA) sheen(g, x, y, colW, colH, 0x40FFFFFF, (clock * 0.45f) % 1.8f);
+                String rl = ri.label.toUpperCase(Locale.ROOT);
+                float cwid = tw(rl, F_SMALL, Ty.XBOLD) + 18;
+                rect(g, x + colW / 2f - cwid / 2f, y + 10, cwid, 15, 7.5f, Draw.rgba(rc, ca));
+                textC(g, rl, x + colW / 2f, y + 17.5f, F_SMALL, Ty.XBOLD, Draw.rgba(0xFF0A0A12, ca));
+                float kh = colH * 0.50f;
+                float yaw = -0.35f - (1f - outCubic(ui / 0.9f)) * 3.14159f + 0.4f * (float) Math.sin(ui * 1.1f + i) * clamp01((ui - 0.5f) / 0.6f);
+                knifeSpin(g, Crates.hdOf(r.item().id()), x + 8, y + 32, colW - 16, kh, yaw, 0.08f * (float) Math.sin(ui * 0.8f + i));
+                String full = nameOf(r.item().id());
+                float ty = y + 32 + kh + 8;
+                textC(g, typeName(full).toUpperCase(Locale.ROOT), x + colW / 2f, ty, F_TINY + 0.3f, Ty.BOLD, Draw.rgba(SUB, ca));
+                textC(g, fit(shortName(full), colW - 16, F_H + 3, Ty.XBOLD), x + colW / 2f, ty + 14, F_H + 3, Ty.XBOLD, Draw.rgba(TEXT, ca));
+                String badge = r.duplicate() ? "Duplicate  ·  +" + r.refund() + " token" + (r.refund() == 1 ? "" : "s") : "New knife!";
+                textC(g, badge, x + colW / 2f, ty + 29, F_SMALL, Ty.BOLD, Draw.rgba(r.duplicate() ? SUB : GREEN, ca));
+                g.pose().popMatrix();
+                float bt = outCubic((ui - 0.7f) / 0.3f);
+                if (bt > 0f) {
+                    float bw = colW - 40, bh = 22;
+                    float by = y + colH - bh - 12 + (1f - bt) * 8f;
+                    button(g, H_EQUIP, x + 20, by, bw, bh, equipped[i] ? "In hand" : "Equip", null, rc, !equipped[i], !equipped[i], clock, dt);
+                    // the shared button helper registers index 0: point this one at its knife
+                    if (!equipped[i] && !hits.isEmpty() && hits.get(hits.size() - 1)[0] == H_EQUIP) hits.get(hits.size() - 1)[1] = i;
+                }
+            }
+            // open again, or stop auto, and done
+            boolean again = Crates.canOpen(crate);
+            float w = 130, bgap = 8, bh3 = 28;
+            int nb = again ? 2 : 1;
+            float x = cx - (nb * w + (nb - 1) * bgap) / 2f;
+            float y = Math.min(H - bh3 - 30, top + colH + 18);
+            float bt = outCubic((u - 1.0f) / 0.3f);
+            if (bt > 0f) {
+                float yy = y + (1f - bt) * 14f;
+                if (again) {
+                    if (autoOn()) button(g, H_STOP, x, yy, w, bh3, "Stop auto", null, RED, true, false, clock, dt);
+                    else {
+                        int m = Math.min(Crates.multi(), Crates.canOpenCount());
+                        button(g, H_AGAIN, x, yy, w, bh3, m > 1 ? "Open " + m + " more" : "Open another", null, crate.colour, true, false, clock, dt);
+                    }
+                    x += w + bgap;
+                }
+                button(g, H_DONE, x, yy, w, bh3, "Done", null, 0xFF5E73A0, true, false, clock, dt);
+            }
+        }
+
+        void reveal(GuiGraphics g, float u, float clock, float dt) {
+            Rarity rar = res.item().rarity();
+            int col = rar.tint();
+            boolean big = rar.ordinal() >= Rarity.TITAN.ordinal();
+            if (!revealSound) announce(res);
             if (chroma) {
                 // a rising bell chord, one note at a time, then a shimmer
                 float[] notes = {0.84f, 1.0f, 1.26f, 1.5f, 1.68f, 2.0f};
@@ -1615,31 +2468,32 @@ public final class CratesScreen extends Screen {
                     snd(SoundEvents.PLAYER_LEVELUP, 1.4f, 0.6f);
                 }
             }
-            int below = 6 + 40 + 6 + 10 + 6 + 20;
-            int bhMax = Math.max(60, Math.min(Math.round(height * 0.42f), Math.min(190, height - below - 34)));
-            int bwMax = Math.round(Math.min(width * 0.62f, 360));
-            float cx = width / 2f, cy = (height - (bhMax + below)) / 2f + bhMax / 2f + 6;
+            float below = 8 + 46 + 18 + 8 + 28;
+            float bhMax = Math.max(70, Math.min(H * 0.42f, Math.min(230, H - below - 44)));
+            float bwMax = Math.min(W * 0.6f, 420);
+            float cx = W / 2f, cy = (H - (bhMax + below)) / 2f + bhMax / 2f + 10;
             // shake on the rarest drops
             float shk = big ? (1f - clamp01(u / 0.5f)) * 5f : 0f;
             g.pose().pushMatrix();
-            g.pose().translate(shk * (float) Math.sin(u * 70), shk * (float) Math.cos(u * 57));
+            g.pose().translate(shk * (float) Math.sin(u * 70) * s, shk * (float) Math.cos(u * 57) * s);
             float e = outCubic(u / 0.45f);
             if (chroma) {
-                if (u < 0.45f) g.fill(0, 0, width, height, Draw.rgba(0xFFFFFFFF, 0.75f * (1f - u / 0.45f)));
+                if (u < 0.45f) fill(g, 0, 0, W, H, Draw.rgba(0xFFFFFFFF, 0.75f * (1f - u / 0.45f)));
                 // a rainbow light round the edges of the screen that keeps turning
-                int ew = Math.max(8, width / 14);
+                float ew = Math.max(8, W / 14f);
                 for (int i = 0; i < 4; i++) {
                     int ec = hue(clock * 0.2f + i * 0.25f);
-                    float ea = 0.10f * e;
-                    if (i == 0) Draw.glow(g, 0, -2, width, 2, 1, ec, ew, ea);
-                    if (i == 1) Draw.glow(g, width, 0, 2, height, 1, ec, ew, ea);
-                    if (i == 2) Draw.glow(g, 0, height, width, 2, 1, ec, ew, ea);
-                    if (i == 3) Draw.glow(g, -2, 0, 2, height, 1, ec, ew, ea);
+                    float ea = 0.10f * e * ew / 3f;
+                    if (i == 0) glow(g, 0, -2, W, 2, 1, ec, ew, ea);
+                    if (i == 1) glow(g, W, 0, 2, H, 1, ec, ew, ea);
+                    if (i == 2) glow(g, 0, H, W, 2, 1, ec, ew, ea);
+                    if (i == 3) glow(g, -2, 0, 2, H, 1, ec, ew, ea);
                 }
-            } else if (u < 0.25f) g.fill(0, 0, width, height, Draw.rgba(0xFFFFFFFF, 0.45f * (1f - u / 0.25f)));
-            // soft rarity light and turning rays (two layers on the rarest drops)
-            Draw.glow(g, Math.round(cx) - 60, Math.round(cy) - 30, 120, 60, 30, col, Math.round(Math.min(width, height) * 0.45f), 0.006f * e);
-            int len = Math.round(Math.max(width, height) * 0.75f);
+            } else if (u < 0.25f) fill(g, 0, 0, W, H, Draw.rgba(0xFFFFFFFF, 0.45f * (1f - u / 0.25f)));
+            // soft rarity light and turning rays (two layers on big drops, three for Chroma)
+            float rad = Math.min(W, H) * 0.45f;
+            glow(g, cx - 60, cy - 30, 120, 60, 30, col, rad, 0.25f * e);
+            float len = Math.max(W, H) * 0.75f;
             int rays = 24;
             for (int layer = 0; layer < (chroma ? 3 : big ? 2 : 1); layer++) {
                 float rot = (layer == 0 ? 1 : layer == 1 ? -0.6f : 0.35f) * clock * 0.22f;
@@ -1649,113 +2503,116 @@ public final class CratesScreen extends Screen {
                     int rc = chroma ? hue(i / (float) rays + layer * 0.17f + clock * 0.08f) : col;
                     for (int k = -2; k <= 2; k++) {
                         double aa = ang + k * 0.017;
-                        Draw.line(g, cx, cy, cx + (float) Math.cos(aa) * len, cy + (float) Math.sin(aa) * len, 3f, Draw.rgba(rc, alpha * (1f - Math.abs(k) * 0.22f)));
+                        line(g, cx, cy, cx + (float) Math.cos(aa) * len, cy + (float) Math.sin(aa) * len, 1.6f, Draw.rgba(rc, alpha * (1f - Math.abs(k) * 0.22f)));
                     }
                 }
             }
             // shockwave rings
             for (int r = 0; r < (rar.ordinal() >= Rarity.DIVINE.ordinal() ? 2 : 1); r++) {
                 float ru = u - r * 0.14f;
-                if (ru > 0 && ru < 0.8f) ring(g, cx, cy, 20 + ru * Math.max(width, height) * 0.6f, Draw.rgba(Draw.lighten(col, 0.4f), 0.6f * (1f - ru / 0.8f)), 2);
+                if (ru > 0 && ru < 0.8f) ring(g, cx, cy, 20 + ru * Math.max(W, H) * 0.6f, Draw.rgba(Draw.lighten(col, 0.4f), 0.6f * (1f - ru / 0.8f)));
             }
             // sparks thrown out by the burst, then falling and twinkling
-            for (float[] s : sparks) {
-                float life = u / s[3];
+            for (float[] sp : sparks) {
+                float life = u / sp[3];
                 if (life >= 1f) continue;
-                float x = cx + s[0] * u, y = cy + s[1] * u + 170f * u * u;
-                float tw = 0.6f + 0.4f * (float) Math.sin(clock * 18 + s[5]);
-                int sz = Math.max(1, Math.round(s[2]));
-                g.fill(Math.round(x), Math.round(y), Math.round(x) + sz, Math.round(y) + sz,
-                        Draw.rgba(chroma ? hue(s[4] + clock * 0.3f) : s[4] < 0.5f ? Draw.lighten(col, 0.5f) : 0xFFFFF4D0, (1f - life) * tw));
+                float x = cx + sp[0] * u, y = cy + sp[1] * u + 170f * u * u;
+                float tw2 = 0.6f + 0.4f * (float) Math.sin(clock * 18 + sp[5]);
+                float sz = Math.max(1, sp[2]);
+                fill(g, x, y, sz, sz, Draw.rgba(chroma ? hue(sp[4] + clock * 0.3f) : sp[4] < 0.5f ? Draw.lighten(col, 0.5f) : 0xFFFFF4D0, (1f - life) * tw2));
             }
-            // gold confetti for an Olympian
+            // gold confetti for an Olympian, rainbow for a Chroma
             for (float[] q : confetti) {
                 float fall = (u * 0.35f + q[1]) % 1.6f;
-                float x = q[0] * width + (float) Math.sin(u * 2 + q[3]) * 14;
-                float y = -20 + fall * (height + 40) / 1.5f;
+                float x = q[0] * W + (float) Math.sin(u * 2 + q[3]) * 14;
+                float y = -20 + fall * (H + 40) / 1.5f;
                 g.pose().pushMatrix();
-                g.pose().translate(x, y);
+                g.pose().translate(x * s, y * s);
                 g.pose().rotate(u * 3 + q[3]);
-                int w = Math.round(q[4]), h = Math.max(1, Math.round(q[4] * 0.5f * Math.abs((float) Math.cos(u * 6 + q[3]))));
+                int w = Math.max(1, Math.round(q[4] * s)), h = Math.max(1, Math.round(q[4] * 0.5f * s * Math.abs((float) Math.cos(u * 6 + q[3]))));
                 g.fill(-w, -h, w, h, chroma ? hue(q[5] + u * 0.15f) : q[5] < 0.5f ? 0xFFFFD66A : 0xFFFFF2C0);
                 g.pose().popMatrix();
             }
             // the knife flies out of the winning card into the middle, turning as it comes
             float m = outCubic(u / MORPH);
-            int cw = cw(), ch = ch();
+            float cw = cw(), ch = ch();
             float fromW = cw * 1.22f - 6, fromH = ch * 1.22f - 26;
-            float fromCx = width / 2f - land * (cw + 6), fromCy = height / 2f - 10;
+            float fromCx = W / 2f - land * (cw + 8), fromCy = H / 2f - 10;
             float bw = fromW + (bwMax - fromW) * m, bh = fromH + (bhMax - fromH) * m;
             float kx = fromCx + (cx - fromCx) * m, ky = fromCy + (cy - fromCy) * m;
             float settle = clamp01((u - MORPH) / 0.6f);
             float yaw = -0.35f - (1f - outCubic(u / 0.9f)) * 3.14159f + 0.5f * (float) Math.sin(u * 1.1f) * settle;
             float tilt = 0.10f * (float) Math.sin(u * 0.8f) * settle;
             float bob = 4f * (float) Math.sin(u * 2f) * settle;
-            KnifeHDGui.spin(g, Crates.hdOf(res.item().id()), Math.round(kx - bw / 2f), Math.round(ky - bh / 2f + bob), Math.round(bw), Math.round(bh), yaw, tilt);
-            // rarity chip pops in above
+            knifeSpin(g, Crates.hdOf(res.item().id()), kx - bw / 2f, ky - bh / 2f + bob, bw, bh, yaw, tilt);
+            // the rarity chip pops in above
             String rl = rar.label.toUpperCase(Locale.ROOT);
             float ra = outBack((u - 0.35f) / 0.35f);
             if (ra > 0) {
-                int rw = Draw.widthBold(rl) + 20;
-                int chipY = Math.max(4, Math.round(cy - bhMax / 2f - 16));
+                float rw = tw(rl, F_BODY, Ty.XBOLD) + 26, rh = 18;
+                float chipY = Math.max(6, cy - bhMax / 2f - 22);
                 g.pose().pushMatrix();
-                g.pose().translate(cx, chipY + 7);
+                g.pose().translate(cx * s, (chipY + rh / 2f) * s);
                 g.pose().scale(ra, ra);
+                g.pose().translate(-cx * s, -(chipY + rh / 2f) * s);
                 if (chroma) {
-                    Draw.glow(g, -rw / 2, -7, rw, 14, 7, col, 10, 0.25f);
-                    Draw.rrect(g, -rw / 2, -7, rw, 14, 7, 0xFF0A0A14);
-                    Draw.rrectLine(g, -rw / 2, -7, rw, 14, 7, col);
-                    int lx = -Draw.widthBold(rl) / 2;
+                    glow(g, cx - rw / 2f, chipY, rw, rh, rh / 2f, col, 10, 0.6f);
+                    rect(g, cx - rw / 2f, chipY, rw, rh, rh / 2f, 0xFF0A0A14);
+                    stroke(g, cx - rw / 2f, chipY, rw, rh, rh / 2f, col);
+                    float lx = cx - tw(rl, F_BODY, Ty.XBOLD) / 2f;
                     for (int i = 0; i < rl.length(); i++) {
                         String letter = rl.substring(i, i + 1);
-                        Draw.bold(g, letter, lx, -4, hue(clock * 0.5f - i * 0.11f));
-                        lx += Draw.widthBold(letter);
+                        text(g, letter, lx, chipY + rh / 2f, F_BODY, Ty.XBOLD, hue(clock * 0.5f - i * 0.11f));
+                        lx += tw(letter, F_BODY, Ty.XBOLD);
                     }
-                    Draw.sheen(g, -rw / 2, -7, rw, 14, 0x60FFFFFF, (clock * 0.6f) % 1.8f);
+                    sheen(g, cx - rw / 2f, chipY, rw, rh, 0x60FFFFFF, (clock * 0.6f) % 1.8f);
                 } else {
-                    Draw.rrect(g, -rw / 2, -7, rw, 14, 7, col);
-                    Draw.boldCenter(g, rl, 0, -4, 0xFF0A0A12);
+                    glow(g, cx - rw / 2f, chipY, rw, rh, rh / 2f, col, 8, 0.25f);
+                    rect(g, cx - rw / 2f, chipY, rw, rh, rh / 2f, Draw.lighten(col, 0.1f), Draw.darken(col, 0.15f));
+                    textC(g, rl, cx, chipY + rh / 2f, F_BODY, Ty.XBOLD, 0xFF0A0A12);
                 }
                 g.pose().popMatrix();
             }
-            // banner slides up, the name types itself in, a shine runs across
-            int ty = Math.round(cy + bhMax / 2f + 6);
+            // the name card slides up, the name types itself in, a shine runs across
+            float ty = cy + bhMax / 2f + 8;
             String full = nameOf(res.item().id());
             float ta = outCubic((u - 0.30f) / 0.35f);
-            int slide = Math.round((1f - ta) * 12f);
-            int bw2 = Math.max(Draw.widthBoldS(shortName(full).toUpperCase(Locale.ROOT), 1.6f), 160) + 40;
+            float slide = (1f - ta) * 12f;
+            String nm = shortName(full);
+            float bw2 = Math.max(tw(nm, 19, Ty.XBOLD), 170) + 60, bh2 = 46;
             if (ta > 0) {
-                Draw.rrect(g, Math.round(cx) - bw2 / 2, ty + slide, bw2, 40, 6, Draw.rgba(0xE0080A14, ta), Draw.rgba(Draw.mix(0xFF080A14, col, 0.25f), ta));
-                g.fill(Math.round(cx) - bw2 / 2 + 6, ty + slide, Math.round(cx) + bw2 / 2 - 6, ty + slide + 2, Draw.rgba(col, ta));
-                Draw.boldCenterS(g, typeName(full).toUpperCase(Locale.ROOT), Math.round(cx), ty + 6 + slide, Draw.rgba(SUB, ta), 0.9f);
-                String nm = shortName(full).toUpperCase(Locale.ROOT);
+                rect(g, cx - bw2 / 2f, ty + slide, bw2, bh2, 12, Draw.rgba(Draw.mix(0xFF0C1122, col, 0.12f), ta), Draw.rgba(0xFF080B16, ta));
+                stroke(g, cx - bw2 / 2f, ty + slide, bw2, bh2, 12, Draw.rgba(Draw.mix(BORDER_HI, col, 0.5f), ta));
+                fill(g, cx - 18, ty + slide, 36, 1.4f, Draw.rgba(col, ta));
+                textC(g, typeName(full).toUpperCase(Locale.ROOT), cx, ty + 13 + slide, F_SMALL, Ty.BOLD, Draw.rgba(SUB, ta));
                 int shown = Math.min(nm.length(), (int) Math.ceil(nm.length() * clamp01((u - 0.4f) / 0.35f)));
-                Draw.boldCenterS(g, nm.substring(0, shown), Math.round(cx), ty + 18 + slide, Draw.rgba(TEXT, ta), 1.6f);
+                textC(g, nm.substring(0, shown), cx, ty + 30 + slide, 19, Ty.XBOLD, Draw.rgba(TEXT, ta));
                 float sh = (u - 0.9f) / 0.7f;
-                if (sh > 0 && sh < 1.6f) Draw.sheen(g, Math.round(cx) - bw2 / 2, ty + slide, bw2, 40, 0x50FFFFFF, sh);
+                if (sh > 0 && sh < 1.6f) sheen(g, cx - bw2 / 2f, ty + slide, bw2, bh2, 0x50FFFFFF, sh);
             }
             // new or duplicate stamps in
-            String badge = res.duplicate() ? "DUPLICATE  ·  +" + res.refund() + " TOKEN" + (res.refund() == 1 ? "" : "S") : "NEW!";
-            int bc = res.duplicate() ? 0xFF8EA2CC : 0xFF6FE3A0;
+            String badge = res.duplicate() ? "Duplicate  ·  +" + res.refund() + " token" + (res.refund() == 1 ? "" : "s") : "New knife!";
+            int bc = res.duplicate() ? SUB : GREEN;
             float ba = clamp01((u - 0.75f) / 0.2f);
             if (ba > 0) {
                 float bs = 1f + 0.6f * (1f - outCubic(ba));
-                Draw.boldCenterS(g, badge, Math.round(cx), ty + 46, Draw.rgba(bc, ba), bs);
+                textC(g, badge, cx, ty + bh2 + 13, F_H * bs, Ty.BOLD, Draw.rgba(bc, ba));
             }
             g.pose().popMatrix();
             // buttons rise in one after another
             boolean again = Crates.canOpen(crate);
-            int w = 104, gap = 8;
+            float w = 120, gap = 8, bh3 = 28;
             int n = again ? 3 : 2;
-            int x = Math.round(cx) - (n * w + (n - 1) * gap) / 2;
-            int y = Math.min(height - 24, ty + 62);
+            float x = cx - (n * w + (n - 1) * gap) / 2f;
+            float y = Math.min(H - bh3 - 10, ty + bh2 + 28);
             for (int b = 0; b < n; b++) {
                 float bt = outCubic((u - 0.9f - b * 0.07f) / 0.3f);
                 if (bt > 0) {
-                    int yy = y + Math.round((1f - bt) * 14f);
-                    if (b == 0) button(g, H_EQUIP, x, yy, w, 20, "EQUIP", col, true, true, mx, my, clock, dt);
-                    else if (again && b == 1) button(g, H_AGAIN, x, yy, w, 20, "OPEN ANOTHER", crate.colour, true, false, mx, my, clock, dt);
-                    else button(g, H_DONE, x, yy, w, 20, "DONE", 0xFF5E73A0, true, false, mx, my, clock, dt);
+                    float yy = y + (1f - bt) * 14f;
+                    if (b == 0) button(g, H_EQUIP, x, yy, w, bh3, "Equip", null, col, true, true, clock, dt);
+                    else if (again && b == 1 && autoOn()) button(g, H_STOP, x, yy, w, bh3, "Stop auto", null, RED, true, false, clock, dt);
+                    else if (again && b == 1) button(g, H_AGAIN, x, yy, w, bh3, "Open another", null, crate.colour, true, false, clock, dt);
+                    else button(g, H_DONE, x, yy, w, bh3, "Done", null, 0xFF5E73A0, true, false, clock, dt);
                 }
                 x += w + gap;
             }

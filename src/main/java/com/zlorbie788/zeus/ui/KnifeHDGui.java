@@ -38,6 +38,18 @@ public final class KnifeHDGui {
         return failures == 0 ? "" : lastError;
     }
 
+    /** Starts loading a knife's sheets in the background: the detail levels a small card and a big view use. */
+    public static void prefetch(int knife, boolean big) {
+        KnifeHD.Model m = KnifeHD.model(knife);
+        if (m == null) return;
+        if (big) {
+            Tex.prefetch(KnifeHD.sheet(m, Math.max(m.minLevel, 0)));
+            Tex.prefetch(KnifeHD.sheet(m, 1));
+        } else {
+            Tex.prefetch(KnifeHD.sheet(m, 2));
+        }
+    }
+
     public static boolean ready(int knife) {
         if (broken()) return false;
         KnifeHD.Model m = KnifeHD.model(knife);
@@ -169,8 +181,18 @@ public final class KnifeHDGui {
     }
 
     private static boolean submit(GuiGraphics g, Geo geo) {
-        Tex.Img img = Tex.sprite(geo.sheet);
-        if (img == null && geo.fallback != null) img = Tex.sprite(geo.fallback);
+        // a sheet not loaded yet is read in the background (reading it here froze the frame for tens of ms);
+        // until it arrives the knife uses another detail level that is loaded, or waits a frame or two unseen
+        Tex.Img img = Tex.spriteIfReady(geo.sheet);
+        if (img == null) {
+            Tex.prefetch(geo.sheet, true);
+            // every detail level of a sheet has the same layout, so any level already loaded can stand in
+            String stem = geo.sheet.substring(0, geo.sheet.length() - 5);
+            for (int lv = 0; lv <= 2 && img == null; lv++) img = Tex.spriteIfReady(stem + lv + ".png");
+            if (img == null && Tex.pending(geo.sheet)) return true;
+            if (img == null) img = Tex.sprite(geo.sheet);
+            if (img == null && geo.fallback != null) img = Tex.sprite(geo.fallback);
+        }
         if (img == null) return false;
         AbstractTexture tex = Minecraft.getInstance().getTextureManager().getTexture(img.id);
         TextureSetup setup = TextureSetup.singleTexture(tex.getTextureView(), tex.getSampler());

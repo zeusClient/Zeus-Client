@@ -169,10 +169,88 @@ public final class Tex {
         }
     }
 
+    // ------------------------------------------------------------------ loading in the background
+    /**
+     * Pictures decoded (and, for the smaller copies, shrunk) on a background thread, waiting for the render thread
+     * to upload them. Reading a knife sheet and making its quarter-size copy takes tens of milliseconds, which used
+     * to freeze the frame that first showed the knife: a reel full of new knives, or the big knife of a reveal.
+     */
+    private static final java.util.concurrent.ConcurrentHashMap<String, NativeImage> DECODED = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.Set<String> LOADING = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** Pictures wanted on screen now are read before those read ahead, on a thread of their own. */
+    private static final java.util.concurrent.ExecutorService LOADER = loader("Zeus picture loader", Thread.NORM_PRIORITY - 1);
+    private static final java.util.concurrent.ExecutorService AHEAD = loader("Zeus picture preloader", Thread.MIN_PRIORITY + 1);
+    private static final java.util.Set<String> URGENT = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    private static java.util.concurrent.ExecutorService loader(String name, int priority) {
+        return java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, name);
+            t.setDaemon(true);
+            t.setPriority(priority);
+            return t;
+        });
+    }
+
+    /** Starts reading a picture for {@link #sprite} in the background, ahead of need, if it is not loaded or on its way. */
+    public static void prefetch(String path) {
+        prefetch(path, false);
+    }
+
+    /**
+     * Starts reading a picture in the background. {@code now}: it is wanted on screen, so it goes ahead of the
+     * pictures being read ahead of time (one already queued behind them is queued again in front).
+     */
+    public static void prefetch(String path, boolean now) {
+        if (path == null || CACHE.containsKey("smooth:" + path) || DECODED.containsKey(path)) return;
+        if (!LOADING.add(path)) {
+            if (!now || !URGENT.add(path)) return;
+        } else if (now) {
+            URGENT.add(path);
+        }
+        try {
+            (now ? LOADER : AHEAD).execute(() -> {
+                if (DECODED.containsKey(path) || CACHE.containsKey("smooth:" + path)) return;
+                try {
+                    NativeImage image;
+                    try (InputStream in = Tex.class.getResourceAsStream("/assets/zeus/" + path)) {
+                        image = in != null ? NativeImage.read(NativeImage.Format.RGBA, in) : derived(path);
+                    }
+                    if (image != null) DECODED.put(path, image);
+                } catch (IOException | RuntimeException e) {
+                    Zeus.LOG.warn("Could not load picture {}", path, e);
+                } finally {
+                    LOADING.remove(path);
+                    URGENT.remove(path);
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            LOADING.remove(path);
+            URGENT.remove(path);
+        }
+    }
+
+    /** True while a picture is being read in the background: drawing it now would wait for it. */
+    public static boolean pending(String path) {
+        return path != null && LOADING.contains(path);
+    }
+
+    /** The picture if it is loaded or ready to upload, without reading anything now. */
+    public static Img spriteIfReady(String path) {
+        Img have = CACHE.get("smooth:" + path);
+        if (have != null) return have;
+        return DECODED.containsKey(path) ? sprite(path) : null;
+    }
+
     public static Img sprite(String path) {
         String key = "smooth:" + path;
         Img have = CACHE.get(key);
         if (have != null) return have;
+        NativeImage ready = DECODED.remove(path);
+        if (ready != null) {
+            Img img = register(key, ready, true);
+            CACHE.put(key, img);
+            return img;
+        }
         try (InputStream in = Tex.class.getResourceAsStream("/assets/zeus/" + path)) {
             NativeImage image = in != null ? NativeImage.read(NativeImage.Format.RGBA, in) : derived(path);
             if (image == null) return null;
@@ -186,7 +264,7 @@ public final class Tex {
     }
 
     /** Missed lookups of pictures that are not shipped and cannot be made from another one. */
-    private static final java.util.Set<String> NOT_DERIVED = new java.util.HashSet<>();
+    private static final java.util.Set<String> NOT_DERIVED = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /**
      * Smaller copies of some pictures are not shipped (it keeps the jar small); they are made here from the next
@@ -239,10 +317,7 @@ public final class Tex {
     private static NativeImage half(NativeImage src, int cells) {
         int sw = src.getWidth(), sh = src.getHeight();
         int w = Math.max(1, sw / 2), h = Math.max(1, sh / 2);
-        int[] in = new int[sw * sh];
-        for (int y = 0; y < sh; y++) {
-            for (int x = 0; x < sw; x++) in[y * sw + x] = src.getPixel(x, y);
-        }
+        int[] in = src.getPixels();
         boolean[] light = new boolean[Math.max(1, cells)];
         int sch = cells > 0 ? sh / cells : sh;
         if (cells > 0) {

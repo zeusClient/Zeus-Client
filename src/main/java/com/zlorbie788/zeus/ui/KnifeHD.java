@@ -364,6 +364,9 @@ public final class KnifeHD {
         float lenPx = (float) Math.hypot(sx1 - sx0, sy1 - sy0) * Math.max(1f, pixels);
         // the sheet has no mipmaps, so pick the level whose texels best match the screen pixels
         f.level = Math.max(m.minLevel, lenPx > 600f ? 0 : lenPx > 300f ? 1 : 2);
+        // mesh detail from the on screen size: a cell never needs to be smaller than a few real pixels, so a
+        // knife on a small card gets fewer, larger cells (the same look) and a big one keeps the full grid
+        pxPerUnit = lenPx / Math.max(1e-3f, m.len);
 
         // paint parts far to near
         int np = m.parts.size();
@@ -455,10 +458,18 @@ public final class KnifeHD {
         return m.centre[i] * (1 - t) + m.centre[i + 1] * t;
     }
 
+    /** Real screen pixels per knife unit for the knife being built; sets how fine its grid is. */
+    private static float pxPerUnit = 1e9f;
+
+    /** Cells are at least {@code base} knife units and at least {@code px} real pixels long. */
+    private static float cell(float base, float px) {
+        return Math.max(base, px / pxPerUnit);
+    }
+
     /** The profile strip of a part: the plane through the centre line and the thickness axis. */
     private static void strip(Frame f, Model m, Rig.T k, Part p, float unit, float lum, float alpha, int group) {
         float len = p.u1 - p.u0;
-        int nu = Math.max(1, (int) Math.ceil(len / 0.5f));
+        int nu = Math.max(1, (int) Math.ceil(len / cell(0.5f, 8f)));
         float cellV = 1f / CELLS;
         float tv0 = PROFILE * cellV, tv1 = (PROFILE + 1) * cellV;
         int a = Math.round(clamp(alpha) * 255f);
@@ -505,8 +516,9 @@ public final class KnifeHD {
                               float fx, float fy, float fz, float ex, float ey, float ez) {
         float len = p.u1 - p.u0;
         boolean fine = mode < 0f;
-        int nu = Math.max(1, (int) Math.ceil(len / (fine ? 0.7f : 1.6f)));
-        int nv = fine ? 6 : 3;
+        int nu = Math.max(1, (int) Math.ceil(len / (fine ? cell(0.7f, 9f) : cell(1.6f, 18f))));
+        // across the blade: six rows for the lit faces, fewer once the knife is too narrow on screen to show them
+        int nv = fine ? Math.max(3, Math.min(6, Math.round(2f * m.half * pxPerUnit / 9f))) : 3;
         float v0 = -m.half + 0.03f, v1 = m.half - 0.03f;
         float cellV = 1f / CELLS;
         // bevel normal: the face tipped 38 degrees towards the cutting edge

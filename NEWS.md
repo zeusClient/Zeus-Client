@@ -1,3 +1,23 @@
+# Crates: any crate, 3 keys
+You no longer need a crate to open one. A key costs 3 tokens and 3 keys open any crate.
+
+- Open 1, 2 or 3 crates at the same time
+- Auto open: keeps opening after each reveal while your keys last
+- New stats: crates opened, knives found, duplicates, favourite crate and more
+- Crates you already held were turned into keys, 3 for each
+- The free crate every 90 minutes now gives 3 keys
+- New promo codes: join the Discord
+
+# New look for Zeus Crates
+The crates screen is redesigned and much lighter to run.
+
+- Sharp new text and layout that look the same at every GUI scale
+- A spotlight stage for the crate, with Buy key and Quick open beside Open
+- The Chroma knife of each crate gets a big featured tile
+- New Chroma textures for the karambit, M9, crystal and phoenix
+- Opening a crate draws far less, so the reel and reveal stay smooth
+- Number keys 1 to 5 switch tabs, Esc closes a knife you are inspecting
+
 # New: Chroma knives
 Six secret knives, one in every crate. About 1 in 400 opens.
 
