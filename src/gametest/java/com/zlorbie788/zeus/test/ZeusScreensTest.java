@@ -168,6 +168,20 @@ public class ZeusScreensTest implements FabricClientGameTest {
         }
         // ZEUS_CRATES_ONLY=1: stop after the Crates screens, for quick UI checks
         if (System.getenv("ZEUS_CRATES_ONLY") != null) {
+            // the keybinds keyboard, with a couple of key presses rippling out
+            ctx.getInput().resizeWindow(1920, 1080);
+            ctx.runOnClient(c -> {
+                c.options.guiScale().set(0);
+                c.resizeDisplay();
+            });
+            ctx.setScreen(() -> new com.zlorbie788.zeus.ui.KeybindScreen(null));
+            run(ctx, 0.8f);
+            ctx.takeScreenshot("keys_rgb_1920");
+            ctx.getInput().pressKey(org.lwjgl.glfw.GLFW.GLFW_KEY_G);
+            run(ctx, 0.25f);
+            ctx.getInput().pressKey(org.lwjgl.glfw.GLFW.GLFW_KEY_P);
+            run(ctx, 0.2f);
+            ctx.takeScreenshot("keys_ripple_1920");
             ctx.runOnClient(c -> UiSettings.MENU.set(false));
             ctx.setScreen(TitleScreen::new);
             ctx.waitTicks(5);
@@ -404,7 +418,7 @@ public class ZeusScreensTest implements FabricClientGameTest {
             Class<?> oc = Class.forName("com.zlorbie788.zeus.ui.CratesScreen$Opening");
             var ctor = oc.getDeclaredConstructors()[0];
             ctor.setAccessible(true);
-            Object op = ctor.newInstance(c.screen, cr, res, c.getWindow().getGuiScaledWidth() / 2 - 40, c.getWindow().getGuiScaledHeight() / 2, 70);
+            Object op = ctor.newInstance(c.screen, cr, java.util.List.of(res), c.getWindow().getGuiScaledWidth() / 2 - 40, c.getWindow().getGuiScaledHeight() / 2, 70);
             set(c.screen, "opening", op);
             if (skip) {
                 Method sk = oc.getDeclaredMethod("skip");
@@ -423,6 +437,10 @@ public class ZeusScreensTest implements FabricClientGameTest {
         run(ctx, 2.0f);
         if ("world".equals(part)) {
             filmWorld(ctx);
+            return;
+        }
+        if ("butterfly".equals(part)) {
+            filmButterfly(ctx);
             return;
         }
         // the main menu building itself
@@ -529,6 +547,23 @@ public class ZeusScreensTest implements FabricClientGameTest {
             sp.getServer().runCommand("time set midnight");
             ctx.waitTicks(10);
             shoot(ctx, "night_galaxy", 75);
+        }
+    }
+
+    /** ZEUS_FILM=butterfly: the butterfly knife in hand, opening and playing two tricks, frame by frame. */
+    private static void filmButterfly(ClientGameTestContext ctx) {
+        try (TestSingleplayerContext sp = ctx.worldBuilder().create()) {
+            sp.getClientWorld().waitForChunksRender();
+            sp.getServer().runCommand("time set 1000");
+            sp.getServer().runCommand("gamerule advance_time false");
+            ctx.runOnClient(c -> com.zlorbie788.zeus.core.Clock.manual = System.nanoTime());
+            ctx.runOnClient(c -> KnifeSwing.equipHd(Crates.hdOf("butterfly_fade")));
+            shoot(ctx, "bf_draw", 30);
+            ctx.runOnClient(c -> KnifeSwing.pressTrick());
+            shoot(ctx, "bf_trick1", 110);
+            ctx.runOnClient(c -> { KnifeSwing.nextTrick(); KnifeSwing.pressTrick(); });
+            shoot(ctx, "bf_trick2", 110);
+            ctx.setScreen(() -> null);
         }
     }
 

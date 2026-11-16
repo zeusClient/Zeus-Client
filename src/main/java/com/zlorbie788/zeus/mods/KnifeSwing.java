@@ -184,6 +184,7 @@ public final class KnifeSwing extends Module {
     private final Setting.Num inset = add(new Setting.Num("Hand distance from edge", "How far in from the side of the screen the hand sits.", 22, 5, 50, 1, "%")).showIf(() -> section.index() == 1);
     private final Setting.Num speed = add(new Setting.Num("Speed", "How fast the tricks play.", 1.0, 0.5, 2.0, 0.1, "x")).showIf(() -> section.index() == 2);
     private final Setting.Num spins = add(new Setting.Num("Rollovers", "How many times the knife turns in a rollover.", 2, 1, 4, 1, "")).showIf(() -> section.index() == 2);
+    private final Setting.Bool physics = add(new Setting.Bool("Handle physics", "Butterfly knives: the free handle and the blade carry their momentum, overshoot a little and settle, and the handles clack shut with a small bounce, like a real balisong.", true)).showIf(() -> section.index() == 2 && bfly());
     private final Setting.Bool sway = add(new Setting.Bool("Sway with the camera", "The hand lags behind when you turn, like the game's own.", true)).showIf(() -> section.index() == 1);
     private final Setting.Bool handLight = add(new Setting.Bool("Light on the hand", "The knife throws a little of its colour on the hand when it flashes and spins.", true)).showIf(() -> section.index() == 0);
     private final Setting.Choice glove = add(new Setting.Choice("Hand", "Glove: a dark leather glove where the hand holds the knife. Bare: just the arm.", 0, "Glove", "Bare")).showIf(() -> section.index() == 0);
@@ -664,8 +665,103 @@ public final class KnifeSwing extends Module {
             }
             else carry = null;
         }
+        handlePhysics(p);
         lastShown = p;
         return p;
+    }
+
+    // ------------------------------------------------------------------ butterfly handle physics
+    /**
+     * The swing handle (b) and the blade (c) of a butterfly are not glued to the trick's curves: each follows its
+     * target through a spring that also tracks the target's speed, so steady turns stay in step but a sudden stop
+     * carries on a little and swings back, and at the stops (handles shut, blade open or closed) the part bounces
+     * once instead of passing through, with a small jolt in the hand. The trick still decides where everything
+     * goes; this only adds the weight.
+     */
+    private final float[] phB = new float[3], phC = new float[3];   // position, velocity, last target
+    private boolean phInit;
+    private long phLast;
+    private float joltT = 99f, joltAmp;
+
+    /** Stiffness (rad/s natural frequency) and damping ratio of the handle and blade springs. */
+    private static final float PH_W = 28f, PH_Z = 0.45f;
+    /** How much speed is kept when a part slaps into a stop. */
+    private static final float PH_BOUNCE = 0.30f;
+    /** A target this close to a stop makes the stop solid for the part following it. */
+    private static final float PH_NEAR = 0.25f;
+
+    private void handlePhysics(Pose p) {
+        long now = com.zlorbie788.zeus.core.Clock.nanoTime();
+        float dt = phLast == 0 ? 0f : Math.min(0.05f, (now - phLast) / 1e9f);
+        phLast = now;
+        if (!physics.on() || karambit() || p.clip != null) {
+            phInit = false;
+            return;
+        }
+        if (!phInit || dt <= 0f) {
+            phB[0] = p.b;
+            phB[1] = 0f;
+            phB[2] = p.b;
+            phC[0] = p.c;
+            phC[1] = 0f;
+            phC[2] = p.c;
+            phInit = true;
+            return;
+        }
+        float hitB = follow(phB, p.b, dt, TAU);
+        float hitC = follow(phC, p.c, dt, PI);
+        p.b = phB[0];
+        p.c = phC[0];
+        float hit = Math.max(hitB, hitC);
+        if (hit > 0.6f) {
+            // the handles slap together: the hand takes a little of the knock
+            joltT = 0f;
+            joltAmp = Math.min(0.05f, hit * 0.0035f);
+        }
+        joltT += dt;
+        if (joltT < 0.35f) {
+            float j = joltAmp * (float) (Math.exp(-14.0 * joltT) * Math.sin(joltT * 55.0));
+            p.flickZ += j;
+            p.gy += j * 6f;
+        }
+    }
+
+    /**
+     * Moves one part a step towards its target. {@code stop} is the spacing of its rest stops (the handles meet at
+     * every full turn, the blade is shut or open at every half turn). Returns the speed it hit a stop with, or 0.
+     */
+    private static float follow(float[] st, float target, float dt, float stop) {
+        float prevTarget = st[2];
+        st[2] = target;
+        float tv = (target - prevTarget) / dt;
+        // a target that jumped a whole turn (a trick starting over) is followed at once, not swung round
+        if (Math.abs(target - st[0]) > PI * 1.5f) {
+            st[0] = target;
+            st[1] = tv;
+            return 0f;
+        }
+        float k = PH_W * PH_W, d = 2f * PH_Z * PH_W;
+        float hit = 0f;
+        int steps = Math.max(1, (int) Math.ceil(dt / (1f / 240f)));
+        float h = dt / steps;
+        // a stop next to the target is solid: the part may reach it but not swing through it, unless the target
+        // itself has gone through to that side (a trick turning on past it)
+        float n = Math.round(target / stop) * stop;
+        boolean near = Math.abs(target - n) < PH_NEAR;
+        float tSide = Math.abs(target - n) > 1e-4f ? Math.signum(target - n) : 0f;
+        for (int i = 0; i < steps; i++) {
+            float before = st[0] - n;
+            float acc = k * (target - st[0]) + d * (tv - st[1]);
+            st[1] += acc * h;
+            st[0] += st[1] * h;
+            float after = st[0] - n;
+            if (near && before != 0f && Math.signum(before) != Math.signum(after) && tSide != Math.signum(after)) {
+                hit = Math.max(hit, Math.abs(st[1]));
+                st[0] = n;
+                st[1] = -st[1] * PH_BOUNCE;
+            }
+        }
+        return hit;
     }
     private static final float CARRY = 0.14f;
     private static final float BLEND = 0.10f;

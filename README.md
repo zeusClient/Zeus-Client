@@ -2,7 +2,7 @@
 
 <p align="center">
   A client-side utility mod for Minecraft Java 1.21.11, built on Fabric.<br>
-  About 178 modules, a polished in-game panel and a local control page in your browser.
+  Over 220 modules, a polished in-game panel and a local control page in your browser.
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 
 ## Overview
 
-Zeus runs entirely on your own client. It adds overlays, automation and tools on top of the game, and it controls nothing on a server. Press **Z** in a world, or type `/zeus`, to open the panel.
+Zeus runs entirely on your own client. It adds overlays, automation and tools on top of the game, and it controls nothing on a server. Press **Right Shift** in a world, or type `/zeus`, to open the panel.
 
 It is aimed at players who want one well-organised client instead of a pile of separate mods: everything is searchable, every setting has a reason to exist, and the whole interface can be moved, resized and recoloured.
 
@@ -44,7 +44,7 @@ The first time you enter a world, a short tour walks through the categories. Rep
 
 ## Getting started
 
-- **Z** opens the panel. Click a module's switch to turn it on, click its row to open its settings, and click the **None** chip to bind a key.
+- **Right Shift** opens the panel (change it under Keybinds: click **Change Zeus menu key**, or pick any key and press **Set as Zeus menu key**). Click a module's switch to turn it on, click its row to open its settings, and click the **None** chip to bind a key.
 - **Panic** (bottom right of the panel) switches everything off at once.
 - Settings are saved in `config/zeus.json`, waypoints in `config/zeus-waypoints.json`, and schematics in `config/zeus/schematics`.
 
@@ -77,12 +77,14 @@ All commands are handled by your game and are never sent to the server.
 Zeus AI runs on an AI provider with your own API key, or fully offline through Ollama or LM Studio. Groq and Google Gemini give free keys. Run `/zeus ai tutorial` in a world and it walks you through every step with clickable buttons. Start a normal chat message with **@** (for example `@mine 10 iron`) and it goes straight to Zeus AI, never to the server; the prefix can be changed in the settings. Press **J** to open chat with `/zeus ai ` already typed. Turn on **Chat window** in Zeus AI Functions for a small on-screen chat of your requests and its answers. The key is stored only in your local config and is shown masked in chat. Without a key, a built-in parser still handles simple commands like `on sprint` or `set killaura range to 4`.
 
 ### Zeus Crates
-**Zeus Crates** on the title screen is where knives are unlocked. Everyone starts with the Stock karambit; every other knife (72 in all, nine types) comes out of one of six crates: Olympus, Tempest, Hades, Nyx, Poseidon and Titan. Each knife has a rarity: Mortal 60%, Heroic 25%, Divine 10%, Titan 4%, Olympian 1%.
+**Zeus Crates** on the title screen is where knives are unlocked. Everyone starts with the Stock karambit; every other knife (77 in all) comes out of one of six crates: Olympus, Tempest, Hades, Nyx, Poseidon and Titan. Each knife has a rarity: Mortal 60%, Heroic 25%, Divine 10%, Titan 4%, Olympian 1%, and the secret Chroma 0.25%.
 
-- Opening a crate needs a key. Keys cost 30 Zeus tokens; you earn 1 token for every 5 minutes of active play (standing still earns nothing).
-- A free random crate drops every 90 minutes of play.
+- You earn 1 Zeus token for every 5 minutes of active play (standing still earns nothing). A key costs 3 tokens, and any crate opens with 3 keys.
+- Open 1, 2 or 3 crates at the same time, or turn on **Auto** to keep opening after each reveal while your keys last. **Quick** shortens the animation.
+- Every 90 minutes of play gives a free crate (3 keys), daily quests and a daily play streak give tokens, and every 25 opens without one guarantees a Divine or better knife.
 - A knife you already own gives tokens back instead, more for rarer drops.
-- Promo codes (Redeem tab) unlock free crates with their keys. Each code works once per player.
+- The History tab shows your stats: crates opened, knives found, duplicates, tokens earned, best streak and more.
+- Promo codes (Redeem tab) give keys and tokens. Each code works once per player; join the Discord for codes.
 
 ### Control page
 

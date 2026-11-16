@@ -235,6 +235,8 @@ public final class KeybindScreen extends Screen {
     /** Waiting for the key that should open the Zeus menu. */
     private boolean listeningMenu;
     private int[] menuBtn;
+    /** With a key picked: make it the key that opens the Zeus menu. */
+    private int[] setMenuBtn;
 
     /** The keyboard, waiting straight away for a new Zeus menu key. */
     public static KeybindScreen forMenuKey(net.minecraft.client.gui.screens.Screen parent) {
@@ -354,16 +356,59 @@ public final class KeybindScreen extends Screen {
     // ------------------------------------------------------------------ the mechanical keyboard look
     private static final int ZEUS_BLUE = 0xFF3C92FF, ZEUS_CYAN = 0xFF35E0D0, ZEUS_PURPLE = 0xFFB77BFF;
 
-    /** The per-key RGB: a slow Zeus-coloured wave drifting across the board. */
+    /** The colour wheel, worked out once: the lighting looks colours up instead of converting every frame. */
+    private static final int[] SPECTRUM = new int[256];
+
+    static {
+        for (int i = 0; i < SPECTRUM.length; i++) SPECTRUM[i] = 0xFF000000 | (java.awt.Color.HSBtoRGB(i / 256f, 0.70f, 1f) & 0xFFFFFF);
+    }
+
+    /** Rings of light sent out from pressed keys: x, y (key units) and start time; start < 0 is a free slot. */
+    private final float[][] ripples = new float[12][3];
+    private int rippleNext;
+
+    {
+        for (float[] r : ripples) r[2] = -1f;
+    }
+
+    private void ripple(Cap c) {
+        if (c == null) return;
+        float[] r = ripples[rippleNext];
+        r[0] = c.x + c.w / 2f;
+        r[1] = c.y + c.h / 2f;
+        r[2] = t;
+        rippleNext = (rippleNext + 1) % ripples.length;
+    }
+
+    /** How strongly a passing ripple lights the board here (0 to 1). */
+    private float rippleAt(float x, float y) {
+        float best = 0f;
+        for (float[] r : ripples) {
+            if (r[2] < 0f) continue;
+            float age = t - r[2];
+            if (age > 1.3f) {
+                r[2] = -1f;
+                continue;
+            }
+            float dx = x - r[0], dy = (y - r[1]) * 1.15f;
+            float d = (float) Math.sqrt(dx * dx + dy * dy);
+            float ring = 1f - Math.abs(d - age * 16f) / 1.4f;
+            if (ring > 0f) best = Math.max(best, ring * (1f - age / 1.3f));
+        }
+        return best;
+    }
+
+    /**
+     * The per-key RGB: a full colour wave flowing diagonally across the board, breathing a little, with white rings
+     * running out from every key that is pressed. Colours come from a table, so the whole board costs next to nothing.
+     */
     private int backlight(float x, float y) {
-        float p = (x / KB_W) * 1.4f + y * 0.08f - t * 0.18f;
-        p -= (float) Math.floor(p);
-        float k = p * 3f;
-        int a = k < 1 ? ZEUS_BLUE : k < 2 ? ZEUS_CYAN : ZEUS_PURPLE;
-        int b = k < 1 ? ZEUS_CYAN : k < 2 ? ZEUS_PURPLE : ZEUS_BLUE;
-        float f = k - (float) Math.floor(k);
-        f = f * f * (3 - 2 * f);
-        return Draw.mix(a, b, f);
+        float p = (x / KB_W) * 0.85f + y * 0.06f - t * 0.11f;
+        int base = SPECTRUM[(int) ((p - (float) Math.floor(p)) * 256f) & 255];
+        float breath = 0.80f + 0.20f * (float) Math.sin(t * 1.2f + x * 0.22f);
+        int lit = Draw.mix(0xFF000000, base, breath);
+        float rip = rippleAt(x, y);
+        return rip > 0f ? Draw.mix(lit, 0xFFFFFFFF, 0.75f * rip) : lit;
     }
 
     private void drawCase(GuiGraphics g, int kw, int kh) {
@@ -433,8 +478,14 @@ public final class KeybindScreen extends Screen {
         int py = pressed ? travel : 0;
         // the light under the cap: module colour when linked, otherwise the drifting Zeus wave
         int light = !c.bindable ? 0xFF2A3348 : sel ? 0xFF7FB8FF : !mods.isEmpty() ? mods.get(0).category.color() : menuKey ? GOLD : backlight(c.x + c.w / 2, c.y);
-        float glowA = !c.bindable ? 0.15f : sel ? 0.9f : !mods.isEmpty() ? 0.75f : menuKey ? 0.6f : 0.32f;
+        float glowA = !c.bindable ? 0.15f : sel ? 0.9f : !mods.isEmpty() ? 0.75f : menuKey ? 0.6f : 0.46f;
         if (pressed) glowA = Math.min(1f, glowA + 0.35f);
+        float rip = c.bindable ? rippleAt(c.x + c.w / 2f, c.y + c.h / 2f) : 0f;
+        if (rip > 0f) {
+            // a passing ring lights linked keys too, over their own colour
+            light = Draw.mix(light, 0xFFFFFFFF, 0.6f * rip);
+            glowA = Math.min(1f, glowA + 0.45f * rip);
+        }
         int spill = Math.max(1, Math.round(u * 0.05f));
         Draw.rrect(g, x - spill, y - spill + py, w + 2 * spill, h + 2 * spill, 4, Draw.rgba(light, glowA * 0.55f));
         if (sel || pressed || !mods.isEmpty()) Draw.glow(g, x, y + py, w, h, 4, light, Math.max(3, Math.round(u * 0.18f)), sel ? 0.5f : 0.22f);
@@ -455,6 +506,11 @@ public final class KeybindScreen extends Screen {
             topA = Draw.mix(topA, col, anyOn ? 0.42f : 0.30f);
             topB = Draw.mix(topB, col, anyOn ? 0.34f : 0.22f);
         }
+        if (mods.isEmpty() && c.bindable && !sel) {
+            // the backlight shines faintly through the cap itself, brighter when a ripple passes
+            topA = Draw.mix(topA, light, 0.10f + 0.25f * rip);
+            topB = Draw.mix(topB, light, 0.05f + 0.15f * rip);
+        }
         Draw.rrect(g, fx, fy, fw, fh, Math.max(2, r - 1), topA, topB);
         g.fill(fx + 2, fy, fx + fw - 2, fy + 1, 0x30FFFFFF);   // light catching the back edge
         if (!q.isEmpty() && listening == null) {
@@ -467,7 +523,7 @@ public final class KeybindScreen extends Screen {
         else if (menuKey) Draw.rrectLine(g, x, y + py, w, h - py, r, GOLD);
         // legends shine through like on a backlit board
         float ls = u < 26 ? 0.55f : u < 32 ? 0.65f : 0.75f;
-        int lc = !c.bindable ? FAINT : !mods.isEmpty() ? 0xFFFFFFFF : menuKey ? 0xFFFFE3A3 : Draw.mix(0xFFE6EDFA, light, 0.35f);
+        int lc = !c.bindable ? FAINT : !mods.isEmpty() ? 0xFFFFFFFF : menuKey ? 0xFFFFE3A3 : Draw.mix(0xFFE6EDFA, light, 0.5f);
         Draw.textS(g, c.label, fx + 2, fy + 2, lc, ls);
         float ms = ls * 0.82f;
         int lineY = fy + fh - Math.round(9 * ms) - 1;
@@ -561,7 +617,7 @@ public final class KeybindScreen extends Screen {
         Draw.rrectLine(g, panelX, panelY, panelW, panelH, 6, 0xFF2B4A78);
         int x0 = panelX + 10, y0 = panelY + 8;
         // header
-        clearBtn = doneBtn = menuBtn = null;
+        clearBtn = doneBtn = menuBtn = setMenuBtn = null;
         if (listeningMenu) {
             Draw.text(g, Draw.fit("Press the key that should open the Zeus menu, or click it above.", panelW - 30 - Draw.width("Escape cancels")), x0, y0 + 2, GOLD);
             Draw.textRight(g, "Escape cancels", panelX + panelW - 10, y0 + 2, DIM);
@@ -579,13 +635,19 @@ public final class KeybindScreen extends Screen {
             List<String> act = actionsOn(selected);
             if (!act.isEmpty()) sub += "  ·  Minecraft uses it for " + String.join(", ", act);
             doneBtn = new int[] {panelX + panelW - 10 - 50, y0 - 3, 50, 15};
-            clearBtn = new int[] {doneBtn[0] - 6 - 70, y0 - 3, 70, 15};
+            boolean isMenu = ZeusClient.OPEN != null && !ZeusClient.OPEN.isUnbound() && ZeusClient.OPEN.saveString().equals(selected.key.getName());
+            String sml = isMenu ? "Opens the Zeus menu" : "Set as Zeus menu key";
+            int smw = Draw.width(sml) + 16;
+            setMenuBtn = new int[] {doneBtn[0] - 6 - smw, y0 - 3, smw, 15};
+            clearBtn = new int[] {setMenuBtn[0] - 6 - 70, y0 - 3, 70, 15};
             Draw.text(g, Draw.fit(sub, clearBtn[0] - x0 - cw - 18), x0 + cw + 8, y0 + 1, !act.isEmpty() && n > 0 ? WARN : DIM);
             if (n > 0) button(g, clearBtn, "Unlink all", false, mx, my, Accent.BAD);
             else clearBtn = null;
+            button(g, setMenuBtn, sml, isMenu, mx, my, GOLD);
+            if (isMenu || !selected.bindable) setMenuBtn = null;
             button(g, doneBtn, "Done", false, mx, my, BLUE);
         } else {
-            String ml = "Zeus menu: " + ZeusClient.menuKeyName();
+            String ml = "Change Zeus menu key (" + ZeusClient.menuKeyName() + ")";
             int mw = Draw.width(ml) + 16;
             menuBtn = new int[] {panelX + panelW - 10 - mw, y0 - 3, mw, 15};
             button(g, menuBtn, ml, false, mx, my, GOLD);
@@ -691,8 +753,13 @@ public final class KeybindScreen extends Screen {
         double x = event.x(), y = event.y();
         int button = event.button();
         Cap c = y < panelY ? capAt(x, y) : null;
+        if (c != null && button == 0) ripple(c);
         if (listeningMenu && c != null && button == 0) {
             if (c.bindable) setMenuKey(c.key);
+            return true;
+        }
+        if (button == 0 && setMenuBtn != null && selected != null && in(setMenuBtn, x, y)) {
+            setMenuKey(selected.key);
             return true;
         }
         if (button == 0 && menuBtn != null && in(menuBtn, x, y)) {
@@ -763,6 +830,7 @@ public final class KeybindScreen extends Screen {
     @Override
     public boolean keyPressed(KeyEvent event) {
         int key = event.key();
+        if (!search.isFocused()) ripple(capFor(k(key)));
         if (listeningMenu) {
             if (key == GLFW.GLFW_KEY_ESCAPE) listeningMenu = false;
             else setMenuKey(k(key));
