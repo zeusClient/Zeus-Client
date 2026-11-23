@@ -1,0 +1,389 @@
+package com.zlorbie788.zeus.ui;
+
+import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import java.util.List;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.navigation.ScreenRectangle;
+import net.minecraft.client.gui.render.TextureSetup;
+import net.minecraft.client.gui.render.state.GuiElementRenderState;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.texture.AbstractTexture;
+import org.joml.Matrix3x2f;
+
+public final class KnifeHDGui {
+    private KnifeHDGui() {
+    }
+
+    private static final KnifeHD.Frame FRAME = new KnifeHD.Frame();
+    private static volatile long brokenUntil;
+    private static int failures;
+    private static String lastError = "";
+
+    private static boolean broken() {
+        return failures >= 5 || com.zlorbie788.zeus.core.Clock.millis() < brokenUntil;
+    }
+
+    public static String problem() {
+        return failures == 0 ? "" : lastError;
+    }
+
+    public static void prefetch(int knife, boolean big) {
+        KnifeHD.Model m = KnifeHD.model(knife);
+        if (m == null) return;
+        if (big) {
+            Tex.prefetch(KnifeHD.sheet(m, Math.max(m.minLevel, 0)));
+            Tex.prefetch(KnifeHD.sheet(m, 1));
+        } else {
+            Tex.prefetch(KnifeHD.sheet(m, 2));
+        }
+    }
+
+    public static boolean ready(int knife) {
+        if (broken()) return false;
+        KnifeHD.Model m = KnifeHD.model(knife);
+        return m != null && Tex.sprite(KnifeHD.sheet(m, 1)) != null;
+    }
+
+    public static boolean draw(GuiGraphics g, int knife, Rig.T k, float unit, float alpha, boolean light) {
+        return drawModel(g, KnifeHD.model(knife), k, unit, alpha, light);
+    }
+
+    private static final Rig.T[] PIECE_AT = new Rig.T[3];
+    private static final KnifeHD.Model[] PIECE_M = new KnifeHD.Model[3];
+    private static final float[] PIECE_Z = new float[3];
+
+    public static boolean drawButterfly(GuiGraphics g, int knife, Rig.T k, float a, float b, float c, float unit, float alpha, boolean light) {
+        if (broken()) return false;
+        KnifeHD.Pieces ps = KnifeHD.pieces(knife);
+        if (ps == null) return false;
+        KnifeHD.butterfly(ps, k, a, b, c, PIECE_AT);
+        PIECE_M[0] = ps.blade;
+        PIECE_M[1] = ps.held;
+        PIECE_M[2] = ps.swing;
+        int[] order = {0, 1, 2};
+        for (int i = 0; i < 3; i++) PIECE_Z[i] = KnifeHD.depth(PIECE_M[i], PIECE_AT[i]);
+        for (int i = 0; i < 3; i++) {
+            for (int j = i + 1; j < 3; j++) {
+                if (PIECE_Z[order[j]] > PIECE_Z[order[i]]) {
+                    int t = order[i];
+                    order[i] = order[j];
+                    order[j] = t;
+                }
+            }
+        }
+        boolean ok = true;
+        for (int i : order) ok &= drawModel(g, PIECE_M[i], PIECE_AT[i], unit, alpha, light);
+        return ok;
+    }
+
+    public static Rig.T butterflyBlade(int knife, Rig.T k, float a, float b, float c) {
+        KnifeHD.Pieces ps = KnifeHD.pieces(knife);
+        if (ps == null) return k;
+        Rig.T[] out = new Rig.T[3];
+        KnifeHD.butterfly(ps, k, a, b, c, out);
+        return out[0];
+    }
+
+    private static void aura(GuiGraphics g, KnifeHD.Model m, Rig.T k, float unit, float alpha) {
+        float e = m.emissive();
+        if (e <= 0f || m.piece == KnifeHD.PIECE_HELD || m.piece == KnifeHD.PIECE_SWING) return;
+        double t = (com.zlorbie788.zeus.core.Clock.nanoTime() % 60_000_000_000L) / 1e9;
+        float breathe = 0.62f + 0.38f * (float) Math.sin(t * 2.2 + m.id.hashCode() % 7);
+        float au = Math.abs(unit);
+        int r = Math.max(4, Math.round(au * 3.6f));
+        // a point with a wide soft fall-off is round; Draw.glow's peak is strength * spread / 3
+        float peak = 0.16f * e * breathe * alpha;
+        for (int i = 0; i < 5; i++) {
+            float[] p = KnifeHD.along(m, k, 0.10f + 0.20f * i);
+            float s = unit * 90f / (90f + p[2]);
+            int x = Math.round(p[0] * s), y = Math.round(p[1] * s);
+            Draw.glow(g, x - 1, y - 1, 2, 2, 1, m.glow, r, peak * 3f / r);
+        }
+    }
+
+    public static boolean drawModel(GuiGraphics g, KnifeHD.Model m, Rig.T k, float unit, float alpha, boolean light) {
+        if (broken()) return false;
+        try {
+            if (m == null) return false;
+            if (light) aura(g, m, k, unit, alpha);
+            float pixels = (float) Minecraft.getInstance().getWindow().getGuiScale();
+            KnifeHD.Frame f = KnifeHD.build(FRAME, m, k, unit, pixels, alpha, light);
+            if (f.quads.isEmpty()) return false;
+            Geo geo = geo(m, f);
+            return geo != null && submit(g, geo);
+        } catch (RuntimeException | Error e) {
+            failures++;
+            brokenUntil = com.zlorbie788.zeus.core.Clock.millis() + 5_000L;
+            lastError = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage());
+            com.zlorbie788.zeus.core.Zeus.LOG.warn("HD knife could not be drawn (attempt {}); using the pixel knife", failures, e);
+            return false;
+        }
+    }
+
+    private static final KnifeHD.Frame FIT = new KnifeHD.Frame();
+
+    // ------------------------------------------------------------------ cached still knives
+    private static final class Geo {
+        final String sheet;
+        final String fallback;
+        final List<Batch> batches = new java.util.ArrayList<>();
+
+        Geo(String sheet, String fallback) {
+            this.sheet = sheet;
+            this.fallback = fallback;
+        }
+    }
+
+    private static final boolean VULKAN = net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("vulkanmod");
+
+    private static Geo geo(KnifeHD.Model m, KnifeHD.Frame f) {
+        Geo geo = new Geo(KnifeHD.sheet(m, f.level), f.level != 1 ? KnifeHD.sheet(m, 1) : null);
+        List<KnifeHD.Quad> qs = f.quads;
+        int start = 0;
+        while (start < qs.size()) {
+            int grp = qs.get(start).group;
+            int end = start;
+            while (end < qs.size() && qs.get(end).group == grp) end++;
+            boolean light2 = qs.get(start).light;
+            RenderPipeline pipe = light2 && !VULKAN ? RenderPipelines.GUI_TEXTURED_PREMULTIPLIED_ALPHA : RenderPipelines.GUI_TEXTURED;
+            Batch b = new Batch(pipe, qs, start, end);
+            if (b.n > 0) geo.batches.add(b);
+            start = end;
+        }
+        return geo;
+    }
+
+    private static boolean submit(GuiGraphics g, Geo geo) {
+        Tex.Img img = Tex.spriteIfReady(geo.sheet);
+        if (img == null) {
+            Tex.prefetch(geo.sheet, true);
+            // every detail level of a sheet has the same layout, so any level already loaded can stand in
+            String stem = geo.sheet.substring(0, geo.sheet.length() - 5);
+            for (int lv = 0; lv <= 2 && img == null; lv++) img = Tex.spriteIfReady(stem + lv + ".png");
+            if (img == null && Tex.pending(geo.sheet)) return true;
+            if (img == null) img = Tex.sprite(geo.sheet);
+            if (img == null && geo.fallback != null) img = Tex.sprite(geo.fallback);
+        }
+        if (img == null) return false;
+        AbstractTexture tex = Minecraft.getInstance().getTextureManager().getTexture(img.id);
+        TextureSetup setup = TextureSetup.singleTexture(tex.getTextureView(), tex.getSampler());
+        Matrix3x2f pose = new Matrix3x2f(g.pose());
+        ScreenRectangle scissor = g.scissorStack.peek();
+        for (Batch b : geo.batches) {
+            Element e = new Element(b, setup, pose, scissor);
+            if (e.bounds != null) g.guiRenderState.submitGuiElement(e);
+        }
+        return true;
+    }
+
+    private static final java.util.LinkedHashMap<Long, Geo> STILL = new java.util.LinkedHashMap<>(64, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(java.util.Map.Entry<Long, Geo> e) {
+            return size() > 220;
+        }
+    };
+    private static final java.util.HashMap<Integer, float[]> REST_FIT = new java.util.HashMap<>();
+
+    private static float[] restFit(int knife, KnifeHD.Model m, Rig.T rest) {
+        float[] b = REST_FIT.get(knife);
+        if (b != null) return b;
+        KnifeHD.build(FIT, m, rest, 1f, 1f, 1f, false);
+        if (FIT.quads.isEmpty()) return null;
+        float x0 = Float.MAX_VALUE, y0 = Float.MAX_VALUE, x1 = -Float.MAX_VALUE, y1 = -Float.MAX_VALUE;
+        for (KnifeHD.Quad q : FIT.quads) {
+            for (int i = 0; i < 4; i++) {
+                x0 = Math.min(x0, q.x[i]);
+                y0 = Math.min(y0, q.y[i]);
+                x1 = Math.max(x1, q.x[i]);
+                y1 = Math.max(y1, q.y[i]);
+            }
+        }
+        b = new float[] {x0, y0, x1, y1};
+        REST_FIT.put(knife, b);
+        return b;
+    }
+
+    public static boolean still(GuiGraphics g, int knife, int bx, int by, int bw, int bh, boolean big) {
+        if (broken() || bw <= 2 || bh <= 2) return false;
+        KnifeHD.Model m = KnifeHD.model(knife);
+        if (m == null) return false;
+        Rig.T k = Rig.T.rz((float) Math.PI - 1.10f).rotY(-0.35f).rotX(0.12f);
+        float[] b = restFit(knife, m, k);
+        if (b == null) return false;
+        float ew = Math.max(1e-3f, (b[2] - b[0]) * 0.80f), eh = Math.max(1e-3f, (b[3] - b[1]) * 0.80f);
+        float unit = Math.min(bw / ew, bh / eh) * 0.86f;
+        float pixels = (float) Minecraft.getInstance().getWindow().getGuiScale();
+        long key = ((long) knife << 40) ^ ((long) Math.round(unit * 32f) << 8) ^ ((long) Math.round(pixels) << 2) ^ (big ? 1 : 0);
+        try {
+            Geo geo = STILL.get(key);
+            if (geo == null) {
+                KnifeHD.Frame f = KnifeHD.build(FRAME, m, k, unit, pixels, 1f, true);
+                if (f.quads.isEmpty()) return false;
+                geo = geo(m, f);
+                STILL.put(key, geo);
+            }
+            g.pose().pushMatrix();
+            g.pose().translate(bx + bw / 2f - (b[0] + b[2]) / 2f * unit, by + bh / 2f - (b[1] + b[3]) / 2f * unit);
+            boolean ok = submit(g, geo);
+            g.pose().popMatrix();
+            return ok;
+        } catch (RuntimeException | Error e) {
+            failures++;
+            brokenUntil = com.zlorbie788.zeus.core.Clock.millis() + 5_000L;
+            lastError = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    public static boolean showcase(GuiGraphics g, int knife, int bx, int by, int bw, int bh, float time, boolean big) {
+        if (broken()) return false;
+        KnifeHD.Model m = KnifeHD.model(knife);
+        if (m == null) return false;
+        float sway = (float) Math.sin(time * (big ? 0.9 : 0.7) + knife * 0.8);
+        Rig.T k = Rig.T.rz((float) Math.PI - 1.10f).rotY(-0.35f + 0.32f * sway).rotX(0.12f + 0.06f * sway);
+        // fitted from the resting pose, measured once per knife, so the turning knife keeps one size
+        float[] fb = restFit(knife, m, Rig.T.rz((float) Math.PI - 1.10f).rotY(-0.35f).rotX(0.12f));
+        if (fb == null) return false;
+        float x0 = fb[0], y0 = fb[1], x1 = fb[2], y1 = fb[3];
+        // the sheet has empty margins around the knife; 0.80 of the quads' box is the knife
+        float ew = Math.max(1e-3f, (x1 - x0) * 0.80f), eh = Math.max(1e-3f, (y1 - y0) * 0.80f);
+        float unit = Math.min(bw / ew, bh / eh) * 0.86f;
+        g.pose().pushMatrix();
+        g.pose().translate(bx + bw / 2f - (x0 + x1) / 2f * unit, by + bh / 2f - (y0 + y1) / 2f * unit);
+        boolean ok = draw(g, knife, k, unit, 1f, true);
+        g.pose().popMatrix();
+        return ok;
+    }
+
+    public static boolean spin(GuiGraphics g, int knife, int bx, int by, int bw, int bh, float yaw, float tilt) {
+        if (broken()) return false;
+        KnifeHD.Model m = KnifeHD.model(knife);
+        if (m == null) return false;
+        Rig.T rest = Rig.T.rz((float) Math.PI - 1.10f).rotY(-0.35f).rotX(0.12f);
+        float[] fb = restFit(knife, m, rest);
+        if (fb == null) return false;
+        float x0 = fb[0], y0 = fb[1], x1 = fb[2], y1 = fb[3];
+        float ew = Math.max(1e-3f, (x1 - x0) * 0.80f), eh = Math.max(1e-3f, (y1 - y0) * 0.80f);
+        float unit = Math.min(bw / ew, bh / eh) * 0.86f;
+        Rig.T k = Rig.T.rz((float) Math.PI - 1.10f + tilt).rotY(yaw).rotX(0.12f);
+        g.pose().pushMatrix();
+        g.pose().translate(bx + bw / 2f - (x0 + x1) / 2f * unit, by + bh / 2f - (y0 + y1) / 2f * unit);
+        boolean ok = draw(g, knife, k, unit, 1f, true);
+        g.pose().popMatrix();
+        return ok;
+    }
+
+    private static final class Batch {
+        final RenderPipeline pipeline;
+        final float[] xy;
+        final float[] uv;
+        final int[] col;
+        final int n;
+        final float minX, minY, maxX, maxY;
+
+        Batch(RenderPipeline pipeline, List<KnifeHD.Quad> qs, int from, int to) {
+            this.pipeline = pipeline;
+            int count = (to - from) * 4;
+            xy = new float[count * 2];
+            uv = new float[count * 2];
+            col = new int[count];
+            float x0 = Float.MAX_VALUE, y0 = Float.MAX_VALUE, x1 = -Float.MAX_VALUE, y1 = -Float.MAX_VALUE;
+            int o = 0;
+            for (int i = from; i < to; i++) {
+                KnifeHD.Quad q = qs.get(i);
+                float area = 0f;
+                for (int k = 0; k < 4; k++) {
+                    int n2 = (k + 1) & 3;
+                    area += q.x[k] * q.y[n2] - q.x[n2] * q.y[k];
+                }
+                boolean flip = area > 0f;
+                {
+                    for (int k = 0; k < 4; k++) {
+                        int c = flip ? (4 - k) & 3 : k;
+                        float x = q.x[c], y = q.y[c];
+                        if (!Float.isFinite(x) || !Float.isFinite(y)) {
+                            x = 0f;
+                            y = 0f;
+                        }
+                        xy[o * 2] = x;
+                        xy[o * 2 + 1] = y;
+                        uv[o * 2] = q.u[c];
+                        uv[o * 2 + 1] = q.v[c];
+                        col[o] = q.c[c];
+                        x0 = Math.min(x0, x);
+                        y0 = Math.min(y0, y);
+                        x1 = Math.max(x1, x);
+                        y1 = Math.max(y1, y);
+                        o++;
+                    }
+                }
+            }
+            n = count;
+            minX = x0;
+            minY = y0;
+            maxX = x1;
+            maxY = y1;
+        }
+    }
+
+    private static final class Element implements GuiElementRenderState {
+        private final RenderPipeline pipeline;
+        private final TextureSetup setup;
+        private final Matrix3x2f pose;
+        private final ScreenRectangle scissor;
+        private final ScreenRectangle bounds;
+        private final float[] xy;
+        private final float[] uv;
+        private final int[] col;
+
+        Element(Batch b, TextureSetup setup, Matrix3x2f pose, ScreenRectangle scissor) {
+            this.pipeline = b.pipeline;
+            this.setup = setup;
+            this.pose = pose;
+            this.scissor = scissor;
+            this.xy = b.xy;
+            this.uv = b.uv;
+            this.col = b.col;
+            ScreenRectangle r = null;
+            if (b.n > 0 && b.maxX >= b.minX) {
+                int x0 = (int) Math.floor(b.minX), y0 = (int) Math.floor(b.minY);
+                int w = Math.max(1, (int) Math.ceil(b.maxX) - x0), h = Math.max(1, (int) Math.ceil(b.maxY) - y0);
+                r = new ScreenRectangle(x0, y0, w, h).transformMaxBounds(pose);
+                if (scissor != null) r = scissor.intersection(r);
+            }
+            bounds = r;
+        }
+
+        @Override
+        public void buildVertices(VertexConsumer vc) {
+            // a mirrored pose turns every winding round: send each quad's corners in reverse then
+            boolean mirror = pose.determinant() < 0f;
+            for (int i = 0; i < col.length; i++) {
+                int j = mirror ? (i & ~3) | ((4 - (i & 3)) & 3) : i;
+                vc.addVertexWith2DPose(pose, xy[j * 2], xy[j * 2 + 1]).setUv(uv[j * 2], uv[j * 2 + 1]).setColor(col[j]);
+            }
+        }
+
+        @Override
+        public RenderPipeline pipeline() {
+            return pipeline;
+        }
+
+        @Override
+        public TextureSetup textureSetup() {
+            return setup;
+        }
+
+        @Override
+        public ScreenRectangle scissorArea() {
+            return scissor;
+        }
+
+        @Override
+        public ScreenRectangle bounds() {
+            return bounds;
+        }
+    }
+}
